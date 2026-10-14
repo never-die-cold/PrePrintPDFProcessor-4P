@@ -6,8 +6,10 @@ PicoSOT学习讲义_*.pdf
 
 # 工具的输出与中间文件
 *_省纸打印版.pdf
-*_省纸打印版_预览*.png     # --preview 生成的临时预览图
-*_检查版.html              # check_handout --keep 保留的染色版
+# --preview 生成的临时预览图
+*_省纸打印版_预览*.png
+# check_handout --keep 保留的染色版
+*_检查版.html
 *.plain.tmp
 *.opt.tmp
 
