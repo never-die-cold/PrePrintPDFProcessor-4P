@@ -74,6 +74,7 @@ python "${ZCODE_SKILL_DIR}/scripts/pack.py" 扫描.pdf --no-trim --gray --pad-du
 | `--gray-raster` | 光栅灰度：整页转灰度 JPEG，体积/墨量最省；文字不再可搜索，适合扫描件与图片型课件 |
 | `--enhance` | 扫描件清理：去底灰 + 对比伸展（有 Pillow 时加轻度去噪），省墨大头 |
 | `--binarize` | 二值化纯黑白（Otsu 阈值，隐含 --enhance），纯文字扫描件最省墨 |
+| `--auto-rotate` | 混排文档：横页放进竖格（或反之）明显更合适时自动转 90° |
 | `--deskew` | 自动校正扫描倾斜（行投影法；需 `pip install pillow`，建议与 --enhance 同用） |
 | `--pad-duplex` | 补空白面，总面数变偶数，双面打印不变错位 |
 | `--rotate-back` | 打印机只能在**短边**翻转时加；长边翻转不要加 |

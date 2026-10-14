@@ -583,6 +583,45 @@ def test_deskew_estimates_and_improves_scan():
         assert rep["deskew_angles"] and abs(rep["deskew_angles"][0]) <= 5, rep
 
 
+def ink_fraction(pdf_path) -> float:
+    """整份输出的墨迹像素占比：用来衡量内容占格子的饱满程度。"""
+    doc = pymupdf.open(pdf_path)
+    try:
+        ink = total = 0
+        for page in doc:
+            pix = page.get_pixmap(dpi=60, colorspace=pymupdf.csGRAY)
+            smp = pix.samples
+            total += len(smp)
+            ink += sum(1 for v in smp if v < 128)
+        return ink / total
+    finally:
+        doc.close()
+
+
+def test_auto_rotate_only_turns_mismatched_pages():
+    with tempfile.TemporaryDirectory() as td:
+        src = os.path.join(td, "混排.pdf")
+        plain = os.path.join(td, "plain.pdf")
+        turned = os.path.join(td, "turned.pdf")
+        doc = pymupdf.open()
+        for k in range(1, 7):                     # 3 竖 + 3 横，满版填色
+            portrait = k <= 3
+            page = doc.new_page(width=(210 if portrait else 297) * MM,
+                                height=(297 if portrait else 210) * MM)
+            page.draw_rect(page.rect, fill=(0.2, 0.2, 0.2))
+        doc.save(src)
+        doc.close()
+
+        run_pack([src, "-o", plain, "--nup", "2"])
+        rep = run_pack_json([src, "-o", turned, "--nup", "2", "--auto-rotate"])
+        assert rep["rotated_pages"] == 3, rep["rotated_pages"]
+        # 横页转正后应明显填满竖向格子
+        assert ink_fraction(turned) > ink_fraction(plain) * 1.2, \
+            (ink_fraction(turned), ink_fraction(plain))
+        # 不用 --auto-rotate 时一页都不转
+        assert run_pack_json([src, "-o", plain + ".2", "--nup", "2"])["rotated_pages"] == 0
+
+
 if __name__ == "__main__":
     all_tests = [(name, fn) for name, fn in sorted(globals().items())
                  if name.startswith("test_") and callable(fn)]

@@ -564,6 +564,7 @@ def build(pymupdf, args, docs, page_lists, out_path):
     placements: dict[tuple[int, int], tuple[int, int]] = {}
     sheet_first_seq: list[int] = []
     deskew_angles: list[float] = []
+    rotated_pages = 0
     seq_no = 0
 
     for di, pno in seq:
@@ -582,17 +583,27 @@ def build(pymupdf, args, docs, page_lists, out_path):
             clip = pymupdf.Rect(planned) & doc[pno].rect
             if clip.is_empty:
                 clip = None
+        cell = cur_cells[cell_idx]
+        rotate = 0
+        if args.auto_rotate:
+            rotate = decide_rotation(doc[pno].rect if clip is None else clip, cell)
+            if rotate:
+                rotated_pages += 1
         try:
             if args.gray_raster:
                 # 光栅灰度：整页渲染成灰度 JPEG 再贴入格子，体积与墨量都最省，
                 # 代价是文字不再可搜索/选中（适合扫描件与图片型课件）
                 src_rect = doc[pno].rect if clip is None else clip
-                cell = cur_cells[cell_idx]
-                aspect = src_rect.width / src_rect.height if src_rect.height else 1.0
-                # --dpi 按“打印到纸上的有效分辨率”解释，避免按源页尺寸过采样
+                # 旋转 90° 后显示尺寸互换，--dpi 按“打印到纸上的有效分辨率”折算
+                disp_w = src_rect.height if rotate else src_rect.width
+                disp_h = src_rect.width if rotate else src_rect.height
+                aspect = disp_w / disp_h if disp_h else 1.0
                 fit_w = min(cell.width, cell.height * aspect)
-                zoom = (fit_w / 72.0 * args.dpi) / src_rect.width if src_rect.width else 1.0
-                pm = doc[pno].get_pixmap(clip=clip, matrix=pymupdf.Matrix(zoom, zoom),
+                zoom = (fit_w / 72.0 * args.dpi) / disp_w if disp_w else 1.0
+                matrix = pymupdf.Matrix(zoom, zoom)
+                if rotate:
+                    matrix = matrix * pymupdf.Matrix(rotate)
+                pm = doc[pno].get_pixmap(clip=clip, matrix=matrix,
                                          colorspace=pymupdf.csGRAY, alpha=False)
                 if args.enhance or args.binarize or args.deskew:
                     data, _fmt, angle = clean_scan_image(
@@ -603,7 +614,7 @@ def build(pymupdf, args, docs, page_lists, out_path):
                     data = pm.tobytes("jpeg", jpg_quality=args.quality)
                 page.insert_image(cell, stream=data, keep_proportion=True)
             else:
-                page.show_pdf_page(cur_cells[cell_idx], doc, pno, clip=clip)
+                page.show_pdf_page(cell, doc, pno, clip=clip, rotate=rotate)
         except Exception as exc:
             log(f"  警告：第 {pno + 1} 页放置失败（{exc}），跳过")
         placements[(di, pno)] = (sheet_idx, cell_idx)
@@ -674,6 +685,7 @@ def build(pymupdf, args, docs, page_lists, out_path):
         "enhance": bool(args.enhance or args.binarize or args.deskew),
         "binarize": bool(args.binarize),
         "deskew_angles": deskew_angles,
+        "rotated_pages": rotated_pages,
         "padded": padded,
         "booklet": False,
         "placements": placements,
@@ -682,6 +694,17 @@ def build(pymupdf, args, docs, page_lists, out_path):
         "docs": docs,
         "page_lists": page_lists,
     })
+
+
+def decide_rotation(src_rect, cell, threshold: float = 0.18) -> int:
+    """混排文档自动旋转：竖格放横页（或反之）明显更省地方时转 90°。"""
+    if src_rect.height <= 0 or cell.height <= 0:
+        return 0
+    src_aspect = src_rect.width / src_rect.height
+    cell_aspect = cell.width / cell.height
+    upright = abs(math.log(cell_aspect / src_aspect))
+    turned = abs(math.log(cell_aspect / (1.0 / src_aspect)))
+    return 90 if turned + threshold < upright else 0
 
 
 def sheet_cells(pymupdf, args, base_cells, page_index):
@@ -1027,6 +1050,7 @@ def save_and_report(pymupdf, args, out, out_path, info):
         "enhance": bool(info.get("enhance")),
         "binarize": bool(info.get("binarize")),
         "deskew_angles": list(info.get("deskew_angles") or []),
+        "rotated_pages": int(info.get("rotated_pages") or 0),
         "size_before_mb": round(src_size / 1048576, 2),
         "size_after_mb": round(out_size / 1048576, 2),
         "size_change_percent": round(size_pct, 1),
@@ -1090,6 +1114,8 @@ def save_and_report(pymupdf, args, out, out_path, info):
         nav.append("页标签按该张首个源页号标注")
     if nav:
         print("  导航    " + "；".join(nav))
+    if info.get("rotated_pages"):
+        print(f"  旋转    混排页自动转正 {info['rotated_pages']} 页（--auto-rotate）")
     if args.gutter > 0:
         print(f"  装订    {args.gutter:g}mm 装订线"
               + ("（背面镜像，双面长边翻页）" if args.mirror else "")
@@ -1139,6 +1165,8 @@ def parse_args(argv):
                    help="转灰度省彩色墨（矢量级转换，文字仍可搜索；走临时副本，不动原文件）")
     p.add_argument("--enhance", action="store_true",
                    help="扫描件清理：去底灰+对比伸展（有 Pillow 时另做轻度去噪），隐含光栅灰度")
+    p.add_argument("--auto-rotate", action="store_true",
+                   help="混排文档：横页放进竖格（或反之）明显更合适时自动转 90°")
     p.add_argument("--deskew", action="store_true",
                    help="自动校正扫描倾斜（行投影法，需 Pillow；建议与 --enhance 同用）")
     p.add_argument("--binarize", action="store_true",
