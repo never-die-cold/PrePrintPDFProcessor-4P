@@ -25,7 +25,7 @@ SAMPLE_HTML = """<!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="utf-8"><title>边界样例</title>
 <style>@page { size: 297mm 210mm; margin: 0; }
 .sheet{ box-sizing:border-box; width:297mm; height:209mm; break-after:page;
-        page-break-after:always; padding:10mm; font-family:"Microsoft YaHei",sans-serif; }
+        page-break-after:always; padding:10mm; "Microsoft YaHei","Noto Sans CJK SC","WenQuanYi Micro Hei",sans-serif; }
 .sheet:last-child{ break-after:auto; }</style></head><body>
 <div class="sheet"><h1>特殊文件名 #1 与 &amp; 符号</h1></div>
 <div class="sheet"><h1>第二页</h1></div>

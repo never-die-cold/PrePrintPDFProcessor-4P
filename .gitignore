@@ -9,7 +9,9 @@ PicoSOT学习讲义_*.pdf
 *.plain.tmp
 *.opt.tmp
 
-# Python 缓存
+# Python 虚拟环境与缓存
+.venv/
+venv/
 __pycache__/
 *.py[cod]
 .pytest_cache/

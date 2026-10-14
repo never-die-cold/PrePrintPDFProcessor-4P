@@ -27,7 +27,7 @@ html,body{{ margin:0; padding:0; }}
 .sheet:last-child{{ break-after:auto; }}
 .lp{{ display:inline-block; vertical-align:top; width:49.9%; height:209mm;
       box-sizing:border-box; overflow:hidden; padding:10mm; position:relative;
-      font-family:"Microsoft YaHei",sans-serif; font-size:7.5pt; line-height:1.44; }}
+      "Microsoft YaHei","Noto Sans CJK SC","WenQuanYi Micro Hei",sans-serif; font-size:7.5pt; line-height:1.44; }}
 .hd{{ font-size:5.6pt; line-height:1.2; }}
 .bd{{ height:172mm; overflow:hidden; font-size:7.5pt; line-height:1.44; }}
 p{{ margin:0 0 1.5mm 0; }}

@@ -26,7 +26,7 @@ SAMPLE_HTML = """<!DOCTYPE html>
 html,body{ margin:0; padding:0; }
 .sheet{ box-sizing:border-box; width:297mm; height:209mm;
          break-after:page; page-break-after:always;
-         font-family:"Microsoft YaHei",sans-serif; font-size:7.5pt; padding:12mm; }
+         "Microsoft YaHei","Noto Sans CJK SC","WenQuanYi Micro Hei",sans-serif; font-size:7.5pt; padding:12mm; }
 .sheet:last-child{ break-after:auto; }
 h1{ font-size:12pt; }
 </style></head><body>
