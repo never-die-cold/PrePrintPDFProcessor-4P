@@ -325,7 +325,7 @@ def test_page_labels_mark_first_source_page():
             d.close()
 
 
-
+def test_outline_is_preserved_and_mapped():
     """拼版后书签应保留，并指向新张上对应格的位置。"""
     with tempfile.TemporaryDirectory() as td:
         src = os.path.join(td, "带目录.pdf")
@@ -388,6 +388,52 @@ def test_json_report_is_pure_json():
         json.loads(run_pack([src, "-o", out + ".2", "--json"])[1])
         assert "省纸打印" in out_s
         assert "排版" in err_s  # 进度信息在 stderr
+
+
+def ink_left_edge(pdf_path, page_index=0, half="left"):
+    """第一格内墨迹最左位置（60dpi 像素），用于验证装订线把内容推离装订侧。"""
+    doc = pymupdf.open(pdf_path)
+    try:
+        pix = doc[page_index].get_pixmap(dpi=60, colorspace=pymupdf.csGRAY)
+        w, h, stride, samples = pix.width, pix.height, pix.stride, pix.samples
+        x_end = w // 2 if half == "left" else w
+        min_x = x_end
+        for y in range(int(0.15 * h), int(0.80 * h), 2):
+            row = y * stride
+            for x in range(0, x_end):
+                if samples[row + x] < 200:
+                    if x < min_x:
+                        min_x = x
+                    break
+        return min_x
+    finally:
+        doc.close()
+
+
+def test_gutter_shifts_content_and_mirror_flips_back():
+    with tempfile.TemporaryDirectory() as td:
+        src = os.path.join(td, "十页.pdf")
+        base = os.path.join(td, "base.pdf")
+        g10 = os.path.join(td, "g10.pdf")
+        g10m = os.path.join(td, "g10m.pdf")
+        make_portrait_pdf(src, pages=10, size_word=False)
+        run_pack([src, "-o", base, "--nup", "2"])
+        run_pack([src, "-o", g10, "--nup", "2", "--gutter", "10"])
+        run_pack([src, "-o", g10m, "--nup", "2", "--gutter", "10", "--mirror"])
+
+        px_per_mm = 60 / 25.4
+        base_left, g10_left = ink_left_edge(base), ink_left_edge(g10)
+        assert g10_left - base_left > 6 * px_per_mm, (base_left, g10_left)
+        assert g10_left - base_left < 16 * px_per_mm, (base_left, g10_left)
+
+        # 背面镜像：第 2 面不右推（装订线改到右侧）
+        back_left = ink_left_edge(g10m, page_index=1)
+        assert back_left < g10_left - 4 * px_per_mm, (back_left, g10_left)
+
+        # 小册子：装订线朝中缝，不报错且能读回标签
+        bk = os.path.join(td, "bk.pdf")
+        run_pack([src, "-o", bk, "--booklet", "--gutter", "8"])
+        assert read_toc(bk) == []
 
 
 if __name__ == "__main__":

@@ -396,6 +396,10 @@ def build(pymupdf, args, docs, page_lists, out_path):
             y0 = margin * MM + r * (cell_h + gap * MM)
             cells.append(pymupdf.Rect(x0, y0, x0 + cell_w, y0 + cell_h))
 
+    # ---- 装订线（正/背面两套格子） ----
+    cells_front = sheet_cells(pymupdf, args, cells, 0)
+    cells_back = sheet_cells(pymupdf, args, cells, 1)
+
     # ---- 裁白边 ----
     clips = {}
     if not args.no_trim and not args.booklet:
@@ -430,6 +434,7 @@ def build(pymupdf, args, docs, page_lists, out_path):
             out.new_page(width=sheet_w, height=sheet_h)
             sheet_first_seq.append(seq_no)
         page = out[sheet_idx]
+        cur_cells = cells_back if sheet_idx % 2 else cells_front
         doc = docs[di]
         clip = None
         planned = clips.get(di)
@@ -442,7 +447,7 @@ def build(pymupdf, args, docs, page_lists, out_path):
                 # 光栅灰度：整页渲染成灰度 JPEG 再贴入格子，体积与墨量都最省，
                 # 代价是文字不再可搜索/选中（适合扫描件与图片型课件）
                 src_rect = doc[pno].rect if clip is None else clip
-                cell = cells[cell_idx]
+                cell = cur_cells[cell_idx]
                 aspect = src_rect.width / src_rect.height if src_rect.height else 1.0
                 # --dpi 按“打印到纸上的有效分辨率”解释，避免按源页尺寸过采样
                 fit_w = min(cell.width, cell.height * aspect)
@@ -452,7 +457,7 @@ def build(pymupdf, args, docs, page_lists, out_path):
                 data = pm.tobytes("jpeg", jpg_quality=args.quality)
                 page.insert_image(cell, stream=data, keep_proportion=True)
             else:
-                page.show_pdf_page(cells[cell_idx], doc, pno, clip=clip)
+                page.show_pdf_page(cur_cells[cell_idx], doc, pno, clip=clip)
         except Exception as exc:
             log(f"  警告：第 {pno + 1} 页放置失败（{exc}），跳过")
         placements[(di, pno)] = (sheet_idx, cell_idx)
@@ -465,9 +470,10 @@ def build(pymupdf, args, docs, page_lists, out_path):
     sheets = out.page_count
     for si in range(sheets):
         page = out[si]
+        cells_si = cells_back if si % 2 else cells_front
         w = LabelWriter(pymupdf, page, size=5.4)
         if use_labels:
-            for ci, cell in enumerate(cells):
+            for ci, cell in enumerate(cells_si):
                 li = si * len(cells) + ci
                 if li >= len(grid_labels):
                     break
@@ -486,7 +492,7 @@ def build(pymupdf, args, docs, page_lists, out_path):
         w.flush()
         if args.frame != "none":
             color = (0.72, 0.72, 0.72) if args.frame == "thin" else (0.45, 0.45, 0.45)
-            for cell in cells:
+            for cell in cells_si:
                 page.draw_rect(cell, color=color, width=0.35)
         if args.mark and (cols > 1 or rows > 1):
             for c in range(1, cols):
@@ -527,6 +533,29 @@ def build(pymupdf, args, docs, page_lists, out_path):
         "docs": docs,
         "page_lists": page_lists,
     })
+
+
+def sheet_cells(pymupdf, args, base_cells, page_index):
+    """按装订线需求收缩格子：--gutter 在装订侧留边，--mirror 让背面（偶数面）镜像。
+
+    装订后靠书脊的一侧会被吃掉几毫米，把该侧格子收窄即可让内容避开装订线。
+    """
+    g = args.gutter * MM
+    if g <= 0:
+        return base_cells
+    side = args.gutter_side
+    if args.mirror and page_index % 2 == 1:
+        side = "right" if side == "left" else "left"
+    out = []
+    for cell in base_cells:
+        rect = pymupdf.Rect(cell)
+        if side == "left":
+            rect.x0 += g
+        else:
+            rect.x1 -= g
+        # 收缩过多（边距把格子挤没了）时退回原格，避免内容消失
+        out.append(rect if rect.width > 15 and rect.height > 15 else pymupdf.Rect(cell))
+    return out
 
 
 def parse_grid(text: str):
@@ -575,6 +604,12 @@ def build_booklet(pymupdf, args, docs, page_lists, out_path,
     left = pymupdf.Rect(margin * MM, margin * MM, margin * MM + cell_w, margin * MM + cell_h)
     right = pymupdf.Rect(left.x1 + gap * MM, margin * MM, left.x1 + gap * MM + cell_w,
                          margin * MM + cell_h)
+    if args.gutter > 0:
+        # 对折装订：中缝两侧各留出装订线，正背面天然对称，无需 --mirror
+        g = args.gutter * MM
+        if left.width - g > 15 and right.width - g > 15:
+            left.x1 -= g
+            right.x0 += g
 
     clips = {}
     if not args.no_trim:
@@ -674,7 +709,7 @@ def apply_outline(pymupdf, args, out, info) -> int:
                 continue
             dest = {"kind": pymupdf.LINK_GOTO, "page": sheet_idx}
             if 0 <= cell_idx < len(cells):
-                rect = cells[cell_idx]
+                rect = sheet_cells(pymupdf, args, [cells[cell_idx]], sheet_idx)[0]
                 dest["to"] = pymupdf.Point(rect.x0 + 1, rect.y0 + 1)
             entries.append([lvl, title, sheet_idx + 1, dest])
     if not entries:
@@ -845,6 +880,8 @@ def save_and_report(pymupdf, args, out, out_path, info):
         "subset_fonts": not args.no_subset_fonts,
         "outline_entries": outline_count,
         "page_label_sheets": label_count,
+        "gutter_mm": args.gutter,
+        "mirror": bool(args.mirror),
     }
     if args.json:
         print(json.dumps(report, ensure_ascii=False, indent=2))
@@ -881,6 +918,10 @@ def save_and_report(pymupdf, args, out, out_path, info):
         nav.append("页标签按该张首个源页号标注")
     if nav:
         print("  导航    " + "；".join(nav))
+    if args.gutter > 0:
+        print(f"  装订    {args.gutter:g}mm 装订线"
+              + ("（背面镜像，双面长边翻页）" if args.mirror else "")
+              + ("，收向中缝" if info["booklet"] else f"，收在{ 'left' if args.gutter_side == 'left' else 'right' }侧"))
     print(f"  打印    100% 比例、双面长边翻页、关闭“适合页面/适应纸张”")
     if args.rotate_back:
         print(f"  提示    已按短边翻页旋转背面（--rotate-back）")
@@ -914,6 +955,12 @@ def parse_args(argv):
     p.add_argument("--trim-force", action="store_true", help="强制裁白边（忽略阈值）")
     p.add_argument("--trim-threshold", type=float, default=0.94,
                    help="白边占比超过该值才裁（默认 0.94，即省 6%% 以上才裁）")
+    p.add_argument("--gutter", type=float, default=0.0,
+                   help="装订线 mm：在装订侧额外留边（默认 0）；小册子自动朝中缝")
+    p.add_argument("--mirror", action="store_true",
+                   help="双面装订：背面（偶数面）镜像装订线方向")
+    p.add_argument("--gutter-side", default="left", choices=["left", "right"],
+                   help="装订边在左还是右（默认 left）")
     p.add_argument("--gray", action="store_true",
                    help="转灰度省彩色墨（矢量级转换，文字仍可搜索；走临时副本，不动原文件）")
     p.add_argument("--gray-raster", action="store_true",

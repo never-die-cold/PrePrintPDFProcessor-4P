@@ -68,6 +68,7 @@ python "${ZCODE_SKILL_DIR}/scripts/pack.py" 扫描.pdf --no-trim --gray --pad-du
 | `--paper a4\|a3\|a5\|letter` / `--margin` / `--gap` | 纸张与边距（mm，默认 8/3） |
 | `--frame none\|thin\|box` / `--mark` | 格边框 / 格间虚线裁切线 |
 | `--label auto\|none\|前缀` / `--footer auto\|none\|文字` | 每格页标 / 页脚 |
+| `--gutter 10` / `--mirror` | 装订线：装订侧留 10mm；`--mirror` 让背面镜像（双面装订用）；小册子自动朝中缝 |
 | `--gray` | 转灰度（矢量级转换，文字仍清晰可搜索），省彩色墨 |
 | `--gray-raster` | 光栅灰度：整页转灰度 JPEG，体积/墨量最省；文字不再可搜索，适合扫描件与图片型课件 |
 | `--pad-duplex` | 补空白面，总面数变偶数，双面打印不变错位 |
