@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """html2pdf.py（Edge/Chrome 无头 HTML→PDF）的冒烟测试。
 
 直接运行：python tests/test_html2pdf.py

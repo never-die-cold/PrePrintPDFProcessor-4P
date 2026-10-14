@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """install-sendto.ps1 的测试：安装/卸载「发送到 → 省纸打印」。
 
 直接运行：python tests/test_sendto.py
@@ -8,11 +7,9 @@
 
 from __future__ import annotations
 
-import io
 import os
 import shutil
 import subprocess
-import sys
 import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -33,8 +30,7 @@ def powershell() -> str | None:
 def run_installer(send_to_dir: str, extra=None):
     shell = powershell()
     return subprocess.run(
-        [shell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", INSTALLER,
-         "-SendToDir", send_to_dir] + list(extra or []),
+        [shell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", INSTALLER, "-SendToDir", send_to_dir, *list(extra or [])],
         capture_output=True, text=True, encoding="utf-8", errors="replace")
 
 
@@ -42,10 +38,10 @@ def read_text_any_encoding(path: str) -> str:
     """安装脚本按 OEM 编码写出 .cmd，这里用多种编码兜底读取。"""
     for enc in ("gbk", "utf-8", "latin-1"):
         try:
-            return io.open(path, encoding=enc).read()
+            return open(path, encoding=enc).read()
         except UnicodeDecodeError:
             continue
-    return io.open(path, encoding="utf-8", errors="replace").read()
+    return open(path, encoding="utf-8", errors="replace").read()
 
 
 def test_sendto_install_and_remove():
@@ -85,7 +81,7 @@ if __name__ == "__main__":
             try:
                 fn()
                 print(f"  PASS  {name}")
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 failed += 1
                 print(f"  FAIL  {name}: {exc}")
     raise SystemExit(1 if failed else 0)

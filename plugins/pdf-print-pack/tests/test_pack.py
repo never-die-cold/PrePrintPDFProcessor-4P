@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """pack.py 省纸打印引擎的回归测试。
 
 直接运行：python tests/test_pack.py
@@ -39,7 +38,7 @@ pack = load_pack()
 
 def run_pack(args, expect_ok=True):
     """以子进程运行引擎，返回 (returncode, stdout, stderr)。"""
-    proc = subprocess.run([sys.executable, PACK_PY] + list(args),
+    proc = subprocess.run([sys.executable, PACK_PY, *list(args)],
                           capture_output=True, text=True, encoding="utf-8",
                           errors="replace")
     if expect_ok and proc.returncode != 0:
@@ -48,7 +47,7 @@ def run_pack(args, expect_ok=True):
 
 
 def run_pack_json(args):
-    code, out, err = run_pack(list(args) + ["--json"])
+    code, out, err = run_pack([*list(args), "--json"])
     return json.loads(out)
 
 
@@ -220,7 +219,7 @@ def test_trim_enlarges_content():
         min_x, max_x = w, -1
         for y in range(int(0.15 * h), int(0.80 * h), 2):
             row = y * stride
-            for x in range(0, w // 2):
+            for x in range(w // 2):
                 if samples[row + x] < 200:  # 有墨
                     if x < min_x:
                         min_x = x
@@ -251,7 +250,7 @@ def test_gray_and_page_label_and_error_paths():
         src = os.path.join(td, "彩页.pdf")
         out = os.path.join(td, "gray.pdf")
         doc = pymupdf.open()
-        for k in range(1, 7):
+        for _k in range(1, 7):
             page = doc.new_page(width=960, height=540)
             page.draw_rect(pymupdf.Rect(40, 40, 920, 500), color=(1, 0, 0), fill=(1, 1, 0))
         doc.save(src)
@@ -401,7 +400,7 @@ def ink_left_edge(pdf_path, page_index=0, half="left"):
         min_x = x_end
         for y in range(int(0.15 * h), int(0.80 * h), 2):
             row = y * stride
-            for x in range(0, x_end):
+            for x in range(x_end):
                 if samples[row + x] < 200:
                     if x < min_x:
                         min_x = x
@@ -719,7 +718,7 @@ if __name__ == "__main__":
         try:
             fn()
             print(f"  PASS  {name}（{time.perf_counter() - t0:.1f}s）")
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             failed.append((name, exc))
             print(f"  FAIL  {name}: {exc}")
     print(f"\n{len(tests) - len(failed)}/{len(tests)} 通过")

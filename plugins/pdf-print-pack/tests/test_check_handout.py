@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """check_handout.py 的测试：能抓出被裁的正文、放行干净的讲义。
 
 直接运行：python tests/test_check_handout.py
@@ -8,7 +7,6 @@
 
 from __future__ import annotations
 
-import io
 import json
 import os
 import subprocess
@@ -56,12 +54,12 @@ def browser_available() -> bool:
 
 
 def write_html(path: str, left_content: str) -> None:
-    with io.open(path, "w", encoding="utf-8") as fh:
+    with open(path, "w", encoding="utf-8") as fh:
         fh.write(TEMPLATE.format(left=left_content))
 
 
 def run_check(html: str, extra=None):
-    proc = subprocess.run([sys.executable, CHECK, html, "--json"] + list(extra or []),
+    proc = subprocess.run([sys.executable, CHECK, html, "--json", *list(extra or [])],
                           capture_output=True, text=True, encoding="utf-8",
                           errors="replace")
     payload = None
@@ -105,7 +103,8 @@ def test_keep_writes_staged_copy():
         assert code == 0, (code, err)
         staged = os.path.join(td, "样例_检查版.html")
         assert os.path.exists(staged), payload
-        text = io.open(staged, encoding="utf-8").read()
+        with open(staged, encoding="utf-8") as fh:
+            text = fh.read()
         assert "pp-check-script" in text, "染色版应包含体检脚本"
 
 
@@ -116,7 +115,7 @@ if __name__ == "__main__":
             try:
                 fn()
                 print(f"  PASS  {name}")
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 failed += 1
                 print(f"  FAIL  {name}: {exc}")
     raise SystemExit(1 if failed else 0)

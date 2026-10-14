@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """html2pdf.py 的边界测试：文件名里的 # & % 空格 与中文，以及页眉参数降级。
 
 直接运行：python tests/test_html2pdf_extra.py
@@ -9,7 +8,6 @@
 from __future__ import annotations
 
 import importlib.util
-import io
 import os
 import subprocess
 import sys
@@ -64,7 +62,7 @@ def test_url_encoding_for_awkward_file_names():
         name = "讲义 #1 & 100%的 测试.html"
         html = os.path.join(td, name)
         out = os.path.join(td, "输出 #1.pdf")
-        with io.open(html, "w", encoding="utf-8") as fh:
+        with open(html, "w", encoding="utf-8") as fh:
             fh.write(SAMPLE_HTML)
         proc = subprocess.run([sys.executable, HTML2PDF, html, "-o", out],
                               capture_output=True, text=True, encoding="utf-8",
@@ -85,7 +83,7 @@ def test_headless_flag_fallback():
     with tempfile.TemporaryDirectory() as td:
         html = os.path.join(td, "样例.html")
         out = os.path.join(td, "样例.pdf")
-        with io.open(html, "w", encoding="utf-8") as fh:
+        with open(html, "w", encoding="utf-8") as fh:
             fh.write(SAMPLE_HTML)
 
         # 造一个最小合法 PDF（模拟浏览器产物）
@@ -126,7 +124,7 @@ if __name__ == "__main__":
             try:
                 fn()
                 print(f"  PASS  {name}")
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 failed += 1
                 print(f"  FAIL  {name}: {exc}")
     raise SystemExit(1 if failed else 0)

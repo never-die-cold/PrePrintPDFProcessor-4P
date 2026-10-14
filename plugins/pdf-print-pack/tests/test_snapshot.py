@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """结构快照测试：固定输入 → 固定结构（张数/网格/页标/书签/页标签），防止无声漂移。
 
 只比较结构与文字，不比较像素，因此跨平台稳定。
@@ -9,7 +8,6 @@
 
 from __future__ import annotations
 
-import io
 import json
 import os
 import re
@@ -89,14 +87,14 @@ def main() -> int:
 
     if update or not os.path.exists(GOLDEN):
         os.makedirs(os.path.dirname(GOLDEN), exist_ok=True)
-        with io.open(GOLDEN, "w", encoding="utf-8", newline="\n") as fh:
+        with open(GOLDEN, "w", encoding="utf-8", newline="\n") as fh:
             json.dump(current, fh, ensure_ascii=False, indent=2, sort_keys=True)
             fh.write("\n")
         print(f"  {'更新' if update else '创建'}快照：{GOLDEN}")
         print("  PASS  test_structure_snapshot")
         return 0
 
-    with io.open(GOLDEN, encoding="utf-8") as fh:
+    with open(GOLDEN, encoding="utf-8") as fh:
         expected = json.load(fh)
     differences = diff(expected, current)
     if differences:

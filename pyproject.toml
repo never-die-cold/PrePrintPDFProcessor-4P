@@ -1,0 +1,25 @@
+[tool.ruff]
+target-version = "py39"
+line-length = 100
+exclude = ["plugins/pdf-print-pack/tests/golden"]
+
+[tool.ruff.lint]
+# 刻意保持中等强度的规则集：能抓真问题，又不与“尽力而为、优雅降级”的设计打架
+select = ["E", "F", "W", "UP", "B", "SIM", "PIE", "C4", "RUF"]
+ignore = [
+    "BLE001",  # 降级路径需要吞掉异常：瘦身/预览/标签失败都不该中断主流程
+    "E501",    # 中文注释与长消息不强行折行
+    # 中文源码里的全角标点是正常标点，不是“易混字符”
+    "RUF001", "RUF002", "RUF003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# 测试里大量使用宽松断言与临时目录，允许 S110/RUF059 风格的写法
+"plugins/pdf-print-pack/tests/*" = ["S101", "RUF059"]
+
+[tool.mypy]
+# 可选检查：PyMuPDF 暂无官方类型桩，这里只做基础约束，不阻塞 CI
+python_version = "3.9"
+ignore_missing_imports = true
+warn_unused_configs = true
+check_untyped_defs = true

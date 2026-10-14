@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """省纸打印拼版引擎（N-up imposition）。
 
 把任意 PDF 拼成「N 合 1」省纸打印版：多页挤到一张 A4，双面打印后每张纸承载 2N 页。
@@ -24,6 +23,7 @@ import math
 import os
 import re
 import sys
+import contextlib
 
 MM = 72.0 / 25.4  # 1 毫米 = 72/25.4 点
 
@@ -90,7 +90,7 @@ def gate_capabilities(pymupdf, args) -> None:
 
 def load_pymupdf():
     try:
-        import pymupdf  # noqa: F401
+        import pymupdf
         return pymupdf
     except ImportError:
         try:
@@ -170,7 +170,7 @@ def _lut_enhance(hist) -> list:
             break
     wp = max(wp, 120)
     cut = int(wp * 0.92)
-    return [255 if v >= cut else min(255, int(round(v * 255 / max(1, cut))))
+    return [255 if v >= cut else min(255, round(v * 255 / max(1, cut)))
             for v in range(256)]
 
 
@@ -403,9 +403,9 @@ def plan_trim(pymupdf, docs, page_lists, threshold: float, force: bool):
         shared = infos[0][3]
         for i in infos[1:]:
             shared = shared | i[3]
-    for di, w, h, union, bleeds, page_area in infos:
+    for di, w, h, union, _bleeds, _page_area in infos:
         rect = shared if (same_size and shared is not None) else union
-        if rect is None or not force and not same_size and union is None:
+        if rect is None or (not force and not same_size and union is None):
             result[di] = None
             continue
         page_rect = pymupdf.Rect(0, 0, w, h)
@@ -488,27 +488,21 @@ class LabelWriter:
 
     def add(self, x, y, text):
         if self.writer is None:
-            try:
+            with contextlib.suppress(Exception):
                 self.page.insert_text((x, y), text, fontsize=self.size,
                                       fontname="helv", color=self.color)
-            except Exception:
-                pass
             return
-        try:
+        with contextlib.suppress(Exception):
             self.writer.append((x, y), text, font=self.font, fontsize=self.size)
-        except Exception:
-            pass
 
     def flush(self):
         if self.writer is None:
             return
-        try:
+        with contextlib.suppress(Exception):
             self.writer.write_text(self.page, color=self.color)
-        except Exception:
-            pass
 
 
-def text_width(writer: "LabelWriter", text: str) -> float:
+def text_width(writer: LabelWriter, text: str) -> float:
     if writer.font is None:
         return len(text) * writer.size * 0.55
     try:
@@ -540,11 +534,8 @@ def build(pymupdf, args, docs, page_lists, out_path):
         cols, rows, orient = parse_grid(args.grid)
     else:
         nup = args.nup
-        if nup == "auto":
-            nup = 3 if aspect >= 1.15 else 2
-        else:
-            nup = int(nup)
-        cols, rows, orient, cw, ch = choose_grid(nup, aspect, paper_w, paper_h,
+        nup = (3 if aspect >= 1.15 else 2) if nup == "auto" else int(nup)
+        cols, rows, orient, _cw, _ch = choose_grid(nup, aspect, paper_w, paper_h,
                                                  margin, gap)
     log(f"  排版：{args.paper.upper()} {'横向' if orient == 'landscape' else '纵向'} "
         f"{cols}×{rows} 网格（每面 {cols * rows} 页，双面后每张纸 {2 * cols * rows} 页）")
@@ -594,11 +585,9 @@ def build(pymupdf, args, docs, page_lists, out_path):
     sheet_first_seq: list[int] = []
     deskew_angles: list[float] = []
     rotated_pages = 0
-    seq_no = 0
     progress_step = max(1, total_src // 10) if total_src >= 40 else 0
 
-    for di, pno in seq:
-        seq_no += 1
+    for seq_no, (di, pno) in enumerate(seq, start=1):
         if progress_step and seq_no % progress_step == 0:
             log(f"  拼版 {seq_no * 100 // total_src}%（{seq_no}/{total_src} 页）")
         if cell_idx >= len(cells):
@@ -672,10 +661,7 @@ def build(pymupdf, args, docs, page_lists, out_path):
                     y = cell.y0 + 5.0
                 w.add(x, y, grid_labels[li])
         if args.footer != "none" and sheets > 1:
-            if args.footer == "auto":
-                text = f"第 {si + 1} 张 / 共 {sheets} 张"
-            else:
-                text = args.footer
+            text = f"第 {si + 1} 张 / 共 {sheets} 张" if args.footer == "auto" else args.footer
             tw = text_width(w, text)
             w.add((sheet_w - tw) / 2, sheet_h - margin * MM * 0.45, text)
         w.flush()
@@ -702,10 +688,8 @@ def build(pymupdf, args, docs, page_lists, out_path):
         padded = True
     if args.rotate_back:
         for i in range(1, out.page_count, 2):
-            try:
+            with contextlib.suppress(Exception):
                 out[i].set_rotation(180)
-            except Exception:
-                pass
 
     return save_and_report(pymupdf, args, out, out_path, {
         "sheets": out.page_count,
@@ -852,10 +836,8 @@ def build_booklet(pymupdf, args, docs, page_lists, out_path,
             placements[(di, pno)] = (i // 2, slot)
     if args.rotate_back:
         for i in range(1, out.page_count, 2):
-            try:
+            with contextlib.suppress(Exception):
                 out[i].set_rotation(180)
-            except Exception:
-                pass
     return save_and_report(pymupdf, args, out, out_path, {
         "sheets": out.page_count,
         "source_pages": total_src,
@@ -1014,8 +996,8 @@ def save_and_report(pymupdf, args, out, out_path, info):
     plain_path = out_path + ".plain.tmp"
     # garbage=3/4 的跨对象去重在大文档上要花 1-2 分钟，只换约 10% 体积；
     # 默认用 garbage=2（逐对象清理，速度快），--compact 时才做深度去重。
-    save_kw = dict(garbage=4 if args.compact else 2, clean=True, deflate=True,
-                   deflate_images=True, deflate_fonts=True)
+    save_kw = {"garbage": 4 if args.compact else 2, "clean": True, "deflate": True,
+                   "deflate_images": True, "deflate_fonts": True}
     out.save(plain_path, **save_kw)
     best_path = plain_path
     optimized = False
@@ -1203,9 +1185,9 @@ def finish_report(args, info, out_path, outline_count, label_count, optimized,
     if previews:
         print("  预览    " + "、".join(os.path.basename(p) for p in previews))
     if not dry_run:
-        print(f"  打印    100% 比例、双面长边翻页、关闭“适合页面/适应纸张”")
+        print("  打印    100% 比例、双面长边翻页、关闭“适合页面/适应纸张”")
     if args.rotate_back:
-        print(f"  提示    已按短边翻页旋转背面（--rotate-back）")
+        print("  提示    已按短边翻页旋转背面（--rotate-back）")
     return report
 
 
@@ -1360,15 +1342,11 @@ def main(argv=None):
         build(pymupdf, args, docs, page_lists, args.out)
     finally:
         for d in docs:
-            try:
+            with contextlib.suppress(Exception):
                 d.close()
-            except Exception:
-                pass
         for tmp in temps:
-            try:
+            with contextlib.suppress(OSError):
                 os.remove(tmp)
-            except OSError:
-                pass
     return 0
 
 

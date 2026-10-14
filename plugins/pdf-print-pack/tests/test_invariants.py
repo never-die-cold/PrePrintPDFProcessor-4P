@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """拼版不变量测试：随机参数下的硬约束（页数守恒、标签唯一、格子合法）。
 
 直接运行：python tests/test_invariants.py
@@ -38,7 +37,7 @@ pack = load_pack()
 
 
 def run_pack(args):
-    proc = subprocess.run([sys.executable, PACK_PY] + list(args),
+    proc = subprocess.run([sys.executable, PACK_PY, *list(args)],
                           capture_output=True, text=True, encoding="utf-8",
                           errors="replace")
     if proc.returncode != 0:
@@ -129,7 +128,7 @@ def test_pages_are_conserved_and_labeled():
             # 顺序：标记出现的先后应与源顺序一致
             order = [int(m) for m in re.findall(r"MARKER (\d{3})", text)]
             assert order == list(range(1, pages + 1)), order
-            
+
             # 页标唯一且数量等于页数
             labels = re.findall(r"K1-\d{2,3}", text)
             assert len(labels) == pages, (len(labels), pages)
@@ -207,7 +206,7 @@ if __name__ == "__main__":
         try:
             fn()
             print(f"  PASS  {name}")
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             failed += 1
             print(f"  FAIL  {name}: {exc}")
     print(f"\n{len(tests) - failed}/{len(tests)} 通过")

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """讲义排版体检 check_handout.py
 
 拼版讲义时最容易出的错是「正文比逻辑页高，超出部分被 .bd 的 overflow:hidden 裁掉」——

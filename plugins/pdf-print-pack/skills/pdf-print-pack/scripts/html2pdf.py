@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """html2pdf.py — 用系统里的 Edge/Chrome 无头模式把 HTML 打印成 PDF。
 
 讲义重排工作流里，HTML 用 @page CSS 声明纸张（如 A4 横向 297mm×210mm），
