@@ -80,6 +80,8 @@ python "${ZCODE_SKILL_DIR}/scripts/pack.py" 扫描.pdf --no-trim --gray --pad-du
 | `--rotate-back` | 打印机只能在**短边**翻转时加；长边翻转不要加 |
 | `--booklet` | 对折骑马钉拼版（适合竖版文档；已拼过版的 2 合 1 材料不要再用） |
 | `--trim-force` / `--no-trim` / `--trim-threshold 0.94` | 白边裁剪控制 |
+| `--dry-run` | 只排版预演并报省纸账，不写文件（先看看能省多少再决定打不打） |
+| `--preview 2` | 输出前 2 张的低清预览 PNG，打印前先看一眼 |
 | `--pages 1-5,8,11-` / `--skip-blank` | 选页 / 跳空白页 |
 | `--outline auto\|none\|数字` | 书签目录：默认 auto（源有目录就保留，点击跳到对应张/格），数字=保留到第几级 |
 | `--page-labels auto\|none` | 输出页标签：默认 auto，每张纸标注它是从源文档第几页开始的 |

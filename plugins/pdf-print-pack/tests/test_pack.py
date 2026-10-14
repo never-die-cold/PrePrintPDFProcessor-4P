@@ -622,6 +622,27 @@ def test_auto_rotate_only_turns_mismatched_pages():
         assert run_pack_json([src, "-o", plain + ".2", "--nup", "2"])["rotated_pages"] == 0
 
 
+def test_dry_run_writes_nothing_and_preview_writes_pngs():
+    with tempfile.TemporaryDirectory() as td:
+        src = os.path.join(td, "十页.pdf")
+        out = os.path.join(td, "不会存在.pdf")
+        make_portrait_pdf(src, pages=10, size_word=False)
+
+        rep = run_pack_json([src, "-o", out, "--nup", "2", "--dry-run", "--cost", "0.05"])
+        assert rep["dry_run"] is True
+        assert not os.path.exists(out), "预演不应写出文件"
+        assert rep["sheets"] == 5 and rep["paper_sheets_duplex"] == 3
+        assert rep["cost_saved_vs_single"] == 0.35
+
+        out2 = os.path.join(td, "预览版.pdf")
+        rep2 = run_pack_json([src, "-o", out2, "--nup", "2", "--preview", "2"])
+        assert os.path.exists(out2)
+        assert len(rep2["previews"]) == 2, rep2["previews"]
+        for png in rep2["previews"]:
+            assert os.path.exists(png) and os.path.getsize(png) > 3000, png
+            assert os.path.dirname(png) == td
+
+
 if __name__ == "__main__":
     all_tests = [(name, fn) for name, fn in sorted(globals().items())
                  if name.startswith("test_") and callable(fn)]

@@ -962,6 +962,11 @@ def save_and_report(pymupdf, args, out, out_path, info):
     })
     outline_count = apply_outline(pymupdf, args, out, info)
     label_count = apply_page_labels(pymupdf, args, out, info)
+    if args.dry_run:
+        log("  预演：只报告排版结果，不写出文件")
+        out.close()
+        return finish_report(args, info, out_path, outline_count, label_count,
+                             optimized=False, previews=[], dry_run=True)
     if not args.no_subset_fonts:
         try:
             out.subset_fonts()  # CJK 课件字体子集化，通常体积减半
@@ -1023,19 +1028,51 @@ def save_and_report(pymupdf, args, out, out_path, info):
                 f"如需覆盖请加 --force，或用 -o 指定别的文件名")
     os.replace(best_path, out_path)
     out.close()
+    previews = write_previews(pymupdf, args, out_path, info)
+    return finish_report(args, info, out_path, outline_count, label_count,
+                         optimized=optimized, previews=previews, dry_run=False)
 
+
+def write_previews(pymupdf, args, out_path, info) -> list:
+    """写出前几张的低清预览 PNG，便于打印前一键检查。"""
+    if not args.preview:
+        return 0
+    try:
+        doc = pymupdf.open(out_path)
+    except Exception:
+        return []
+    paths = []
+    try:
+        count = min(max(1, args.preview), doc.page_count)
+        stem = os.path.splitext(out_path)[0]
+        for i in range(count):
+            path = f"{stem}_预览{i + 1}.png"
+            doc[i].get_pixmap(dpi=80).save(path)
+            paths.append(path)
+    except Exception as exc:
+        log(f"  提示：预览图生成失败（{exc}）")
+    finally:
+        doc.close()
+    return paths
+
+
+def finish_report(args, info, out_path, outline_count, label_count, optimized,
+                  previews, dry_run) -> dict:
+    """算省纸账/成本/体积，打印人类报告或输出 JSON。dry-run 与正常路径共用。"""
     src_size = sum(os.path.getsize(p) for p in args.inputs)
-    out_size = os.path.getsize(out_path)
+    exists = os.path.exists(out_path)
+    out_size = os.path.getsize(out_path) if exists else 0
     src_pages = info["source_pages"]
     sheets = info["sheets"]
     paper_duplex_now = math.ceil(sheets / 2)
     paper_duplex_orig = math.ceil(src_pages / 2)
     saved = 1 - paper_duplex_now / paper_duplex_orig if paper_duplex_orig else 0
     saved_single = (1 - paper_duplex_now / src_pages) * 100 if src_pages else 0
-    size_pct = (out_size / src_size - 1) * 100 if src_size else 0
+    size_pct = (out_size / src_size - 1) * 100 if (src_size and exists) else 0
 
     report = {
         "output": os.path.abspath(out_path),
+        "dry_run": bool(dry_run),
         "input_files": [os.path.abspath(p) for p in args.inputs],
         "source_pages": src_pages,
         "sheets": sheets,
@@ -1063,6 +1100,7 @@ def save_and_report(pymupdf, args, out, out_path, info):
         "cost_saved_vs_duplex": round((paper_duplex_orig - paper_duplex_now) * args.cost, 2),
         "gutter_mm": args.gutter,
         "mirror": bool(args.mirror),
+        "previews": previews,
     }
     if args.json:
         print(json.dumps(report, ensure_ascii=False, indent=2))
@@ -1076,12 +1114,12 @@ def save_and_report(pymupdf, args, out, out_path, info):
         layout_txt = (f"{args.paper.upper()} {orient_txt} {c}×{r} 网格，"
                       f"双面后每张纸 {2 * int(c) * int(r)} 页")
     print()
-    print("省纸打印 · 拼版完成")
+    print("省纸打印 · " + ("排版预演" if dry_run else "拼版完成"))
     print(f"  输入    {len(args.inputs)} 个文件，共 {src_pages} 页"
           + ("（按文件名自然排序）" if not args.no_sort and len(args.inputs) > 1 else ""))
     print(f"  排版    {layout_txt}，输出 {sheets} 面"
           + ("，已补空白面便于双面" if info["padded"] else ""))
-    print(f"  输出    {out_path}")
+    print(f"  输出    {out_path}" + ("（预演，未写出文件）" if dry_run else ""))
     print(f"  省纸    原样单面 {src_pages} 张 → 省纸版双面 {paper_duplex_now} 张"
           f"（省 {saved_single:.0f}%；若原样也双面 {paper_duplex_orig} 张，省 "
           f"{report['paper_saved_percent']:.0f}%）")
@@ -1092,21 +1130,23 @@ def save_and_report(pymupdf, args, out, out_path, info):
         print(f"  成本    按 {args.cost:g} 元/张：原样单面 {single_cost:.2f} 元 → "
               f"省纸版 {new_cost:.2f} 元（省 {single_cost - new_cost:.2f} 元；"
               f"若原样也双面省 {dup_cost - new_cost:.2f} 元）")
-    size_txt = (f"{report['size_before_mb']} MB → {report['size_after_mb']} MB"
-                f"（{'+' if size_pct >= 0 else ''}{size_pct:.0f}%）")
-    if optimized:
-        size_txt += "，已做图片瘦身"
-    elif size_pct > 5:
-        size_txt += "，可用 --quality 60 --dpi 120 再压"
-    ink_note = ""
-    if info.get("enhance"):
-        what = "去底灰+二值化" if info.get("binarize") else "去底灰"
-        angles = info.get("deskew_angles") or []
-        if angles:
-            mid = sorted(angles)[len(angles) // 2]
-            what += f"，去歪斜 {len(angles)} 页（中位 {mid:g}°）"
-        ink_note = "；扫描件清理：" + what
-    print(f"  体积    {size_txt}" + ("；灰度省墨：开" if info["gray"] else "") + ink_note)
+    if not dry_run:
+        size_txt = (f"{report['size_before_mb']} MB → {report['size_after_mb']} MB"
+                    f"（{'+' if size_pct >= 0 else ''}{size_pct:.0f}%）")
+        if optimized:
+            size_txt += "，已做图片瘦身"
+        elif size_pct > 5:
+            size_txt += "，可用 --quality 60 --dpi 120 再压"
+        ink_note = ""
+        if info.get("enhance"):
+            what = "去底灰+二值化" if info.get("binarize") else "去底灰"
+            angles = info.get("deskew_angles") or []
+            if angles:
+                mid = sorted(angles)[len(angles) // 2]
+                what += f"，去歪斜 {len(angles)} 页（中位 {mid:g}°）"
+            ink_note = "；扫描件清理：" + what
+        print(f"  体积    {size_txt}"
+              + ("；灰度省墨：开" if info["gray"] else "") + ink_note)
     nav = []
     if outline_count:
         nav.append(f"书签 {outline_count} 条（点击跳到对应格）")
@@ -1119,14 +1159,15 @@ def save_and_report(pymupdf, args, out, out_path, info):
     if args.gutter > 0:
         print(f"  装订    {args.gutter:g}mm 装订线"
               + ("（背面镜像，双面长边翻页）" if args.mirror else "")
-              + ("，收向中缝" if info["booklet"] else f"，收在{ 'left' if args.gutter_side == 'left' else 'right' }侧"))
-    print(f"  打印    100% 比例、双面长边翻页、关闭“适合页面/适应纸张”")
+              + ("，收向中缝" if info["booklet"] else ""))
+    if previews:
+        print("  预览    " + "、".join(os.path.basename(p) for p in previews))
+    if not dry_run:
+        print(f"  打印    100% 比例、双面长边翻页、关闭“适合页面/适应纸张”")
     if args.rotate_back:
         print(f"  提示    已按短边翻页旋转背面（--rotate-back）")
     return report
 
-
-# ---------------------------------------------------------------- CLI
 
 def parse_args(argv):
     p = argparse.ArgumentParser(
@@ -1193,6 +1234,11 @@ def parse_args(argv):
     p.add_argument("--no-subset-fonts", action="store_true",
                    help="关闭字体子集化（默认开启：CJK 课件通常体积减半）")
     p.add_argument("--force", action="store_true", help="允许覆盖已存在的非本工具输出")
+    p.add_argument("--dry-run", action="store_true",
+                   help="只做排版预演并报告省纸账，不写出文件")
+    p.add_argument("--preview", type=int, default=0, metavar="N",
+                   help="输出前 N 张的低清预览 PNG（如 --preview 2），打印前先看一眼")
+
     p.add_argument("--fast", action="store_true",
                    help="快速模式：跳过字体子集化与图片瘦身（大文件/批量拼版时快很多）")
     p.add_argument("--compact", action="store_true",
