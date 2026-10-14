@@ -26,6 +26,15 @@ python skills/pdf-print-pack/scripts/pack.py 讲义.pdf --booklet
 
 安装后在 ZCode 里也可以直接输入 `/print-pack <PDF 路径>`，或直接说“帮我把这个 PDF 省纸打印”。
 
+## Windows 右键「发送到」一键
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools/install-sendto.ps1
+# 卸载：同上加 -Remove
+```
+
+安装后在资源管理器里选中一个或多个 PDF → 右键 → **发送到 → 省纸打印**，即完成拼版并停在窗口里显示省纸账。
+
 ## 依赖
 
 - Python 3 + `pip install pymupdf`（拼版）
