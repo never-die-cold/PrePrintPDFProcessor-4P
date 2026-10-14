@@ -192,7 +192,7 @@ def test_no_overlap_between_cells():
         for i in range(len(cells)):
             for j in range(i + 1, len(cells)):
                 inter = cells[i] & cells[j]
-                assert inter.is_empty or inter.get_area() < 0.01, (i, j, inter)
+                assert inter.is_empty or inter.width * inter.height < 0.01, (i, j, inter)
         for cell in cells:
             assert cell.x0 >= 0 and cell.y0 >= 0, cell
             assert cell.x1 <= sheet_w + 0.01 and cell.y1 <= sheet_h + 0.01, cell

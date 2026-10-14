@@ -74,8 +74,8 @@ def gate_capabilities(pymupdf, args) -> None:
     """按 PyMuPDF 能力降级或给出清晰报错（旧版本不再是一句 AttributeError）。"""
     ver = pymupdf_version(pymupdf)
     if ver < (1, 24, 0):
-        log(f"  提示：PyMuPDF {'.'.join(map(str, ver))} 较旧，部分功能会自动降级"
-            f"（建议 pip install -U pymupdf）")
+        log(f"  提示：PyMuPDF {'.'.join(map(str, ver))}（{getattr(pymupdf, 'version', '?')}）"
+            f"较旧，部分功能会自动降级（建议 pip install -U pymupdf）")
     if args.gray and not hasattr(pymupdf.Document, "recolor"):
         die("当前 PyMuPDF 不支持矢量转灰度（需要 Document.recolor）：\n"
             "  可改用 --gray-raster，或升级：pip install -U pymupdf")
@@ -315,6 +315,14 @@ def gray_sanitize(pymupdf, doc, temps: list):
     return pymupdf.open(tmp)
 
 
+def rect_area(rect) -> float:
+    """矩形面积（点数²）。
+
+    不用 Rect.get_area()：那是 PyMuPDF 1.27+ 才有的方法，1.24~1.26 上会 AttributeError。
+    """
+    return max(0.0, rect.width) * max(0.0, rect.height)
+
+
 def page_content_rect(pymupdf, page):
     """本页所有可见内容的外接矩形（无内容时返回 None）。"""
     rect = None
@@ -352,7 +360,7 @@ def is_blank_page(page, entries=None) -> bool:
                 b = _pm.Rect(log[0][1])
             except Exception:
                 pass
-            if b.get_area() >= 0.99 * page_rect.get_area():
+            if rect_area(b) >= 0.99 * rect_area(page_rect):
                 return True
         return False
     except Exception:
@@ -375,12 +383,12 @@ def plan_trim(pymupdf, docs, page_lists, threshold: float, force: bool):
         for pno in pages:
             page = doc[pno]
             rect = page.rect
-            page_area += rect.get_area()
+            page_area += rect_area(rect)
             crect = page_content_rect(pymupdf, page)
             if crect is None:
                 continue
             crect = pymupdf.Rect(crect) & rect
-            if crect.get_area() >= 0.985 * rect.get_area():
+            if rect_area(crect) >= 0.985 * rect_area(rect):
                 bleed += 1
             union = crect if union is None else (union | crect)
         # 所有页面外接矩形的并集（近似）
@@ -415,7 +423,7 @@ def plan_trim(pymupdf, docs, page_lists, threshold: float, force: bool):
         if rect.is_empty:
             result[di] = None
             continue
-        saved = 1.0 - rect.get_area() / page_rect.get_area()
+        saved = 1.0 - rect_area(rect) / rect_area(page_rect)
         if force or saved > threshold:
             result[di] = rect
         else:
