@@ -33,7 +33,7 @@ More samples: [booklet](docs/images/booklet.png) · [scanned-document cleanup](d
 ## Quick start
 
 ```bash
-pip install pymupdf            # required; pillow+numpy enable scan cleanup & deskew
+pip install "pymupdf>=1.24.9"  # required; pillow+numpy enable scan cleanup & deskew
 
 # one command — auto layout, auto trim, auto labels, auto slimming
 python plugins/pdf-print-pack/skills/pdf-print-pack/scripts/pack.py deck.pdf

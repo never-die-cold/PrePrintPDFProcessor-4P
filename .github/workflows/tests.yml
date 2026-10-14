@@ -25,9 +25,11 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      # pymupdf 是运行依赖；pillow/numpy 只在扫描件增强与去歪斜里用到（可选，装了才跑那两项测试）
+      # pymupdf 下限固定：recolor / rewrite_images / set_page_labels 等能力在旧版上不存在，
+      # 代码会优雅降级，但测试期望的是完整能力
+      # pillow/numpy 只在扫描件增强与去歪斜里用到（可选，装了才跑那两项测试）
       - name: Install dependencies
-        run: python -m pip install --upgrade pip pymupdf pillow numpy
+        run: python -m pip install --upgrade pip "pymupdf>=1.24.9" pillow numpy "ruff==0.17.0"
 
       - name: Show environment
         run: |
@@ -57,6 +59,4 @@ jobs:
         run: python plugins/pdf-print-pack/tests/test_sendto.py
 
       - name: Lint with ruff
-        run: |
-          python -m pip install ruff
-          ruff check plugins/pdf-print-pack
+        run: python -m ruff check plugins/pdf-print-pack

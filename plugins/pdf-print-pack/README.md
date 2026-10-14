@@ -37,7 +37,7 @@ powershell -ExecutionPolicy Bypass -File tools/install-sendto.ps1
 
 ## 依赖
 
-- Python 3 + `pip install pymupdf`（拼版）
+- Python 3 + `pip install "pymupdf>=1.24.9"`（拼版；旧版会自动降级但功能不全）
 - Microsoft Edge 或 Google Chrome（仅讲义重排需要；Windows 自带 Edge）
 
 ## 输出约定

@@ -33,7 +33,7 @@
 ## 快速开始
 
 ```bash
-pip install pymupdf            # 必需；pillow+numpy 可解锁扫描件清理与去歪斜
+pip install "pymupdf>=1.24.9"  # 必需；pillow+numpy 可解锁扫描件清理与去歪斜
 
 # 一条命令：自动排版、裁白边、页标、瘦身
 python plugins/pdf-print-pack/skills/pdf-print-pack/scripts/pack.py 课件.pdf
