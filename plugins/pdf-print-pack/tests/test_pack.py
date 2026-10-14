@@ -285,6 +285,68 @@ def test_gray_mode_places_all_pages():
         assert report["source_pages"] == 12
 
 
+def read_toc(path):
+    """读取 PDF 目录后立即关闭，避免 Windows 上句柄未释放导致临时目录清理失败。"""
+    doc = pymupdf.open(path)
+    try:
+        return doc.get_toc(simple=False)
+    finally:
+        doc.close()
+
+
+def test_outline_is_preserved_and_mapped():
+    """拼版后书签应保留，并指向新张上对应格的位置。"""
+    with tempfile.TemporaryDirectory() as td:
+        src = os.path.join(td, "带目录.pdf")
+        out = os.path.join(td, "out.pdf")
+        doc = pymupdf.open()
+        for k in range(1, 10):
+            page = doc.new_page(width=210 * MM, height=297 * MM)
+            page.insert_text((60, 120), f"PAGE {k}", fontsize=30)
+        doc.set_toc([[1, "第一章", 1], [2, "1.1 小节", 2], [1, "第二章", 5]])
+        doc.save(src)
+        doc.close()
+
+        run_pack([src, "-o", out, "--nup", "2"])
+        toc = read_toc(out)
+        assert [t[1] for t in toc] == ["第一章", "1.1 小节", "第二章"], toc
+        # 2 合 1（每张纸 2 页）：源页 1、2 → 第 1 张；源页 5 → 第 3 张
+        assert [t[2] for t in toc] == [1, 1, 3], toc
+        assert [t[0] for t in toc] == [1, 2, 1]
+        assert isinstance(toc[0][3], dict) and "to" in toc[0][3], toc[0]
+        # 目的地点应落在左格内（源页 1 在左格）
+        assert toc[0][3]["to"].x < 842 / 2, toc[0][3]
+
+        run_pack([src, "-o", out + ".no", "--outline", "none"])
+        assert read_toc(out + ".no") == []
+
+        run_pack([src, "-o", out + ".l1", "--outline", "1"])
+        assert [t[1] for t in read_toc(out + ".l1")] == ["第一章", "第二章"]
+
+
+def test_outline_survives_gray_and_booklet():
+    with tempfile.TemporaryDirectory() as td:
+        src = os.path.join(td, "带目录.pdf")
+        doc = pymupdf.open()
+        for k in range(1, 9):
+            page = doc.new_page(width=210 * MM, height=297 * MM)
+            page.insert_text((60, 120), f"PAGE {k}", fontsize=30)
+        doc.set_toc([[1, "甲", 1], [1, "乙", 5]])
+        doc.save(src)
+        doc.close()
+
+        out_gray = os.path.join(td, "gray.pdf")
+        run_pack([src, "-o", out_gray, "--gray"])
+        assert [t[1] for t in read_toc(out_gray)] == ["甲", "乙"]
+
+        out_bk = os.path.join(td, "booklet.pdf")
+        run_pack([src, "-o", out_bk, "--booklet"])
+        toc = read_toc(out_bk)
+        assert [t[1] for t in toc] == ["甲", "乙"], toc
+        # 骑马钉 8 页：册序 8,1,2,7,6,3,4,5 → 源页 1 在第 1 面，源页 5 在第 4 面
+        assert [t[2] for t in toc] == [1, 4], toc
+
+
 def test_json_report_is_pure_json():
     with tempfile.TemporaryDirectory() as td:
         src = os.path.join(td, "d.pdf")

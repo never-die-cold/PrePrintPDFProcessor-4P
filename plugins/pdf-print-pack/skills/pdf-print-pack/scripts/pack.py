@@ -418,6 +418,7 @@ def build(pymupdf, args, docs, page_lists, out_path):
     counters = [0] * len(docs)
     label_pad = max(2, len(str(max((len(p) for p in page_lists), default=1))))
     grid_labels: list[str] = []
+    placements: dict[tuple[int, int], tuple[int, int]] = {}
 
     for di, pno in seq:
         if cell_idx >= len(cells):
@@ -450,6 +451,7 @@ def build(pymupdf, args, docs, page_lists, out_path):
                 page.show_pdf_page(cells[cell_idx], doc, pno, clip=clip)
         except Exception as exc:
             log(f"  警告：第 {pno + 1} 页放置失败（{exc}），跳过")
+        placements[(di, pno)] = (sheet_idx, cell_idx)
         counters[di] += 1
         if use_labels:
             grid_labels.append(f"{prefixes[di]}-{counters[di]:0{label_pad}d}")
@@ -515,6 +517,10 @@ def build(pymupdf, args, docs, page_lists, out_path):
         "gray": bool(args.gray or args.gray_raster),
         "padded": padded,
         "booklet": False,
+        "placements": placements,
+        "cells": cells,
+        "docs": docs,
+        "page_lists": page_lists,
     })
 
 
@@ -570,8 +576,9 @@ def build_booklet(pymupdf, args, docs, page_lists, out_path,
         clips = plan_trim(pymupdf, docs, page_lists,
                           threshold=args.trim_threshold, force=args.trim_force)
 
-    flat_pages = [(doc, pno) for doc, pages in zip(docs, page_lists) for pno in pages]
+    flat_pages = [(di, pno) for di, pages in enumerate(page_lists) for pno in pages]
     out = pymupdf.open()
+    placements: dict[tuple[int, int], tuple[int, int]] = {}
     for i in range(0, len(seq), 2):
         out.new_page(width=sheet_w, height=sheet_h)
         page = out[len(out) - 1]
@@ -579,9 +586,9 @@ def build_booklet(pymupdf, args, docs, page_lists, out_path,
         for slot, item in enumerate(pair):
             if item is None or item >= len(flat_pages):
                 continue
-            doc, pno = flat_pages[item]
-            doc_index = next(k for k, d in enumerate(docs) if d is doc)
-            planned = clips.get(doc_index)
+            di, pno = flat_pages[item]
+            doc = docs[di]
+            planned = clips.get(di)
             clip = None
             if planned is not None:
                 clip = pymupdf.Rect(planned) & doc[pno].rect
@@ -591,6 +598,7 @@ def build_booklet(pymupdf, args, docs, page_lists, out_path,
                 page.show_pdf_page(left if slot == 0 else right, doc, pno, clip=clip)
             except Exception as exc:
                 log(f"  警告：小册子第 {pno + 1} 页放置失败（{exc}）")
+            placements[(di, pno)] = (i // 2, slot)
     if args.rotate_back:
         for i in range(1, out.page_count, 2):
             try:
@@ -606,10 +614,74 @@ def build_booklet(pymupdf, args, docs, page_lists, out_path,
         "gray": bool(args.gray or args.gray_raster),
         "padded": padded_n != n,
         "booklet": True,
+        "placements": placements,
+        "cells": [left, right],
+        "docs": docs,
+        "page_lists": page_lists,
     })
 
 
 # ---------------------------------------------------------------- 保存与报告
+
+def apply_outline(pymupdf, args, out, info) -> int:
+    """把源文档书签映射到拼版后的「第几张/哪一格」，写进输出目录。"""
+    if args.outline == "none":
+        return 0
+    max_level = None
+    if args.outline != "auto":
+        try:
+            max_level = int(args.outline)
+        except ValueError:
+            die(f"--outline 只支持 auto、none 或级别数字，收到：{args.outline}")
+    placements = info.get("placements") or {}
+    cells = info.get("cells") or []
+    entries = []
+    for di, doc in enumerate(info.get("docs") or []):
+        try:
+            toc = doc.get_toc()
+        except Exception:
+            toc = []
+        if not toc:
+            continue
+        included = info["page_lists"][di]
+        included_set = set(included)
+        last = max(included) if included else -1
+        for lvl, title, page in toc:
+            pno = page - 1
+            if pno not in included_set:
+                # 被 --pages 剔掉的页：改指向其后第一个仍保留的页
+                if pno > last:
+                    continue
+                pno = next((p for p in included if p >= pno), None)
+                if pno is None:
+                    continue
+            spot = placements.get((di, pno))
+            if not spot:
+                continue
+            sheet_idx, cell_idx = spot
+            if max_level is not None and lvl > max_level:
+                continue
+            dest = {"kind": pymupdf.LINK_GOTO, "page": sheet_idx}
+            if 0 <= cell_idx < len(cells):
+                rect = cells[cell_idx]
+                dest["to"] = pymupdf.Point(rect.x0 + 1, rect.y0 + 1)
+            entries.append([lvl, title, sheet_idx + 1, dest])
+    if not entries:
+        return 0
+    # 层级规范化：首条为 1 级、不得跳级（过滤或缺页后可能破坏层级）
+    fixed = []
+    prev = 0
+    for lvl, title, page, dest in entries:
+        lvl = max(1, min(lvl, prev + 1))
+        fixed.append([lvl, title, page, dest])
+        prev = lvl
+    try:
+        out.set_toc(fixed)
+    except Exception as exc:
+        log(f"  提示：书签写入失败（{exc}）")
+        return 0
+    return len(fixed)
+
 
 def visual_diff(pymupdf, path_a: str, path_b: str, dpi: int = 42,
                 max_pages: int = 6) -> float:
@@ -648,6 +720,7 @@ def save_and_report(pymupdf, args, out, out_path, info):
                     + ("（灰度省墨）" if info["gray"] else "")),
         "producer": CREATOR_TAG,
     })
+    outline_count = apply_outline(pymupdf, args, out, info)
     if not args.no_subset_fonts:
         try:
             out.subset_fonts()  # CJK 课件字体子集化，通常体积减半
@@ -738,6 +811,7 @@ def save_and_report(pymupdf, args, out, out_path, info):
         "size_change_percent": round(size_pct, 1),
         "optimized_images": optimized,
         "subset_fonts": not args.no_subset_fonts,
+        "outline_entries": outline_count,
     }
     if args.json:
         print(json.dumps(report, ensure_ascii=False, indent=2))
@@ -767,6 +841,8 @@ def save_and_report(pymupdf, args, out, out_path, info):
     elif size_pct > 5:
         size_txt += "，可用 --quality 60 --dpi 120 再压"
     print(f"  体积    {size_txt}" + ("；灰度省墨：开" if info["gray"] else ""))
+    if outline_count:
+        print(f"  书签    保留 {outline_count} 条（点击跳到对应格）")
     print(f"  打印    100% 比例、双面长边翻页、关闭“适合页面/适应纸张”")
     if args.rotate_back:
         print(f"  提示    已按短边翻页旋转背面（--rotate-back）")
@@ -810,6 +886,8 @@ def parse_args(argv):
     p.add_argument("--booklet", action="store_true",
                    help="小册子拼版：对折成 A5，骑马钉顺序（忽略 --nup）")
     p.add_argument("--pages", help="只取这些页，如 1-5,8,11-（对每个输入分别生效）")
+    p.add_argument("--outline", default="auto",
+                   help="书签目录：auto（源有目录就保留并映射到张/格）|none|数字（保留到第几级）")
     p.add_argument("--skip-blank", action="store_true", help="跳过空白页")
     p.add_argument("--no-sort", action="store_true", help="保持命令行给出的顺序（默认按文件名自然排序）")
     p.add_argument("--password", help="加密 PDF 的打开密码")
