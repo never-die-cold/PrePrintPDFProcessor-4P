@@ -1,0 +1,55 @@
+/* ============================================================================
+   学习讲义「2合1省纸打印版」主题（已在本仓库讲义中验证）
+   纸张：A4 横向 297×210mm；一张纸并排 2 个 A5 逻辑页；双面打印每张纸 4 逻辑页。
+   用法：把本文件内联进 <style>，或 <link rel="stylesheet" href="handout-theme.css">。
+   注意：@page 必须声明 size，Edge/Chrome 无头打印才会输出横向 A4。
+   页面高用 209mm（留 1mm 容差），避免溢出多打一页空白。
+   ========================================================================== */
+@page { size: 297mm 210mm; margin: 0; }
+html,body{ margin:0; padding:0; background:#fff; }
+body{ font-family:"Microsoft YaHei","SimHei","PingFang SC",sans-serif;
+      font-size:7.5pt; line-height:1.44; color:#111; text-align:justify; }
+.sheet{ width:297mm; height:209mm; break-after:page; page-break-after:always; background:#fff; font-size:0; line-height:0; }
+.lp{ display:inline-block; vertical-align:top; width:49.9%; height:209mm; box-sizing:border-box; overflow:hidden;
+     font-family:"Microsoft YaHei","SimHei","PingFang SC",sans-serif; font-size:7.5pt; line-height:1.44; color:#111; text-align:justify;
+     padding:10.4mm 16.2mm 0 17.3mm; position:relative; }
+.hd{ font-size:5.6pt; color:#777; line-height:1.2; }
+.hr{ border-top:0.7pt solid #444; margin-top:0.7mm; }
+.bd{ height:172mm; overflow:hidden; }
+.fr{ position:absolute; left:17.3mm; right:16.2mm; bottom:11.4mm; border-top:0.7pt solid #444; }
+.ft{ position:absolute; left:17.3mm; right:16.2mm; bottom:7.4mm; font-size:5.6pt; color:#777;
+     display:flex; justify-content:space-between; }
+sup,sub{ font-size:0.68em; line-height:0; }
+h1{ font-size:10.5pt; font-weight:bold; margin:0 0 2.4mm 0; padding-bottom:1.2mm;
+    border-bottom:1.1pt solid #625A42; color:#1b1b1b; }
+h1 span{ font-weight:normal; font-size:6.4pt; color:#777; float:right; }
+h2{ font-size:8.5pt; font-weight:bold; margin:3.6mm 0 1.4mm 0; color:#1b1b1b; break-after:avoid; }
+h3{ font-size:7.6pt; font-weight:bold; margin:2.6mm 0 1mm 0; color:#333; break-after:avoid; }
+p{ margin:0 0 1.5mm 0; }
+b{ font-weight:bold; }
+.m{ font-family:"Times New Roman",serif; font-size:1.06em; }
+.c{ text-align:center; }
+.tb{ border-collapse:collapse; width:100%; margin:1.2mm 0 1.6mm 0; }
+.tb th{ background:#625A42; color:#fff; font-size:6.9pt; font-weight:bold;
+        border:0.4pt solid #8a8371; padding:0.7mm 1mm; text-align:left; }
+.tb td{ border:0.4pt solid #b9b4a6; padding:0.6mm 1mm; font-size:6.9pt; line-height:1.3; vertical-align:top; }
+.tb tr:nth-child(even) td{ background:#f4f3f0; }
+.cap{ font-size:5.8pt; color:#666; text-align:center; margin:-0.8mm 0 2mm 0; }
+.box{ border:0.9pt solid #6b5b95; padding:1.6mm 2mm; margin:1.4mm 0 1.8mm 0; text-align:center; background:#faf9fd; }
+.box .t{ font-size:6.4pt; color:#6b5b95; text-align:left; margin-bottom:0.6mm; }
+.toc{ display:flex; align-items:baseline; margin:0.45mm 0; }
+.toc .tt{ font-size:6.7pt; }
+.toc .ld{ flex:1; border-bottom:0.4pt dotted #b5b5b5; margin:0 1.2mm; }
+.toc .pn{ font-size:6.2pt; color:#666; }
+.toc.h .tt{ font-weight:bold; font-size:7.2pt; }
+.toc.h{ margin-top:1.2mm; }
+ul{ margin:0 0 1.5mm 0; padding-left:4.2mm; }
+li{ margin:0 0 0.7mm 0; }
+
+/* ---- 封面页（逻辑页可单独用一套样式，配在 .cover 上） ---- */
+.cover{ padding-top:52mm; }
+.cover .kicker{ font-size:7pt; letter-spacing:2.6pt; color:#7a6fa1; margin-bottom:6mm; }
+.cover h1{ font-size:26pt; border:none; line-height:1.18; color:#4a3e8f; margin-bottom:5mm; }
+.cover .sub{ font-size:8.6pt; color:#333; line-height:1.6; margin-bottom:14mm; }
+.cover .meta{ font-size:7pt; color:#555; border-top:0.7pt solid #999; padding-top:2mm; }
+.cover .bar{ position:absolute; left:6mm; top:0; width:1.1mm; height:209mm; background:#5a4db3; }
