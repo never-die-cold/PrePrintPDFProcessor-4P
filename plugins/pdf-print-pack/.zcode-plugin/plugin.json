@@ -1,0 +1,11 @@
+{
+  "name": "pdf-print-pack",
+  "version": "0.1.0",
+  "description": "省纸打印助手：一键把 PDF 拼版成 N 合 1 打印版（2/3/4/6/8 页一张 A4、自动裁白边、灰度省墨、双面补页、降采样瘦身），也可把课件重排成 2 合 1 浓缩讲义（HTML + Edge 无头打印）。",
+  "author": {
+    "name": "never-die-cold"
+  },
+  "license": "MIT",
+  "skills": "./skills",
+  "commands": "./commands"
+}
