@@ -274,7 +274,9 @@ def clean_scan_image(pymupdf, pm, args, binarize: bool = False):
             if est is not None and abs(est) >= 0.2:
                 # 旋转后的四角用页边颜色填充，避免出现纯白尖角
                 border = img.crop((0, 0, img.width, max(1, img.height // 40)))
-                fill = int(sum(border.getdata()) / max(1, border.width * border.height))
+                # 用 tobytes() 求均值：getdata() 在 Pillow 14 会被移除
+                samples = border.tobytes()
+                fill = int(sum(samples) / max(1, len(samples)))
                 img = img.rotate(est, resample=_pillow_resample(Image, "BICUBIC"),
                                  fillcolor=fill)
                 angle = round(float(est), 2)
