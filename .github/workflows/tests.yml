@@ -1,0 +1,62 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: ${{ matrix.os }} / py${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.9", "3.12"]
+    env:
+      PYTHONIOENCODING: utf-8
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # pymupdf 是运行依赖；pillow/numpy 只在扫描件增强与去歪斜里用到（可选，装了才跑那两项测试）
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip pymupdf pillow numpy
+
+      - name: Show environment
+        run: |
+          python --version
+          python -c "import pymupdf; print('pymupdf', pymupdf.version)"
+
+      - name: Engine regression tests
+        run: python plugins/pdf-print-pack/tests/test_pack.py
+
+      - name: Invariant tests
+        run: python plugins/pdf-print-pack/tests/test_invariants.py
+
+      - name: Structure snapshot
+        run: python plugins/pdf-print-pack/tests/test_snapshot.py
+
+      # 以下三项需要本机浏览器；GitHub runner 自带 Chrome，测不到就自动 SKIP
+      - name: HTML to PDF smoke tests
+        run: python plugins/pdf-print-pack/tests/test_html2pdf.py
+
+      - name: HTML to PDF edge cases
+        run: python plugins/pdf-print-pack/tests/test_html2pdf_extra.py
+
+      - name: Handout overflow checker
+        run: python plugins/pdf-print-pack/tests/test_check_handout.py
+
+      - name: Windows SendTo installer
+        run: python plugins/pdf-print-pack/tests/test_sendto.py
+
+      - name: Lint with ruff
+        run: |
+          python -m pip install ruff
+          ruff check plugins/pdf-print-pack
