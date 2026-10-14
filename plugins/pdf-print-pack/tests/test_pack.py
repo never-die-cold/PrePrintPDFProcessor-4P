@@ -294,7 +294,38 @@ def read_toc(path):
         doc.close()
 
 
-def test_outline_is_preserved_and_mapped():
+def test_page_labels_mark_first_source_page():
+    """页标签应等于该张第一个格对应的源页序号，便于反查。"""
+    with tempfile.TemporaryDirectory() as td:
+        src = os.path.join(td, "六页.pdf")
+        out = os.path.join(td, "o.pdf")
+        make_portrait_pdf(src, pages=6, size_word=False)
+
+        run_pack([src, "-o", out, "--nup", "2"])
+        d = pymupdf.open(out)
+        try:
+            labels = d.get_page_labels()
+            assert [x["firstpagenum"] for x in labels] == [1, 3, 5], labels
+            assert len(labels) == d.page_count == 3
+        finally:
+            d.close()
+
+        run_pack([src, "-o", out + ".3", "--nup", "3"])
+        d = pymupdf.open(out + ".3")
+        try:
+            assert [x["firstpagenum"] for x in d.get_page_labels()] == [1, 4]
+        finally:
+            d.close()
+
+        run_pack([src, "-o", out + ".off", "--page-labels", "none"])
+        d = pymupdf.open(out + ".off")
+        try:
+            assert not d.get_page_labels()
+        finally:
+            d.close()
+
+
+
     """拼版后书签应保留，并指向新张上对应格的位置。"""
     with tempfile.TemporaryDirectory() as td:
         src = os.path.join(td, "带目录.pdf")

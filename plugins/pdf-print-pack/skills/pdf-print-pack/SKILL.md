@@ -76,6 +76,7 @@ python "${ZCODE_SKILL_DIR}/scripts/pack.py" 扫描.pdf --no-trim --gray --pad-du
 | `--trim-force` / `--no-trim` / `--trim-threshold 0.94` | 白边裁剪控制 |
 | `--pages 1-5,8,11-` / `--skip-blank` | 选页 / 跳空白页 |
 | `--outline auto\|none\|数字` | 书签目录：默认 auto（源有目录就保留，点击跳到对应张/格），数字=保留到第几级 |
+| `--page-labels auto\|none` | 输出页标签：默认 auto，每张纸标注它是从源文档第几页开始的 |
 | `--quality 75 --dpi 200 --optimize auto\|off` | 瘦身参数；`off` 可关 |
 | `--password` / `--force` / `--no-sort` / `--json` | 加密 PDF / 覆盖保护 / 排序 / 机器可读报告 |
 

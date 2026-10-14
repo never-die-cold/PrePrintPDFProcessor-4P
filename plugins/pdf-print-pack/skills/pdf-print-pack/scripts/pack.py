@@ -419,12 +419,16 @@ def build(pymupdf, args, docs, page_lists, out_path):
     label_pad = max(2, len(str(max((len(p) for p in page_lists), default=1))))
     grid_labels: list[str] = []
     placements: dict[tuple[int, int], tuple[int, int]] = {}
+    sheet_first_seq: list[int] = []
+    seq_no = 0
 
     for di, pno in seq:
+        seq_no += 1
         if cell_idx >= len(cells):
             sheet_idx += 1
             cell_idx = 0
             out.new_page(width=sheet_w, height=sheet_h)
+            sheet_first_seq.append(seq_no)
         page = out[sheet_idx]
         doc = docs[di]
         clip = None
@@ -518,6 +522,7 @@ def build(pymupdf, args, docs, page_lists, out_path):
         "padded": padded,
         "booklet": False,
         "placements": placements,
+        "sheet_first_seq": sheet_first_seq,
         "cells": cells,
         "docs": docs,
         "page_lists": page_lists,
@@ -579,10 +584,15 @@ def build_booklet(pymupdf, args, docs, page_lists, out_path,
     flat_pages = [(di, pno) for di, pages in enumerate(page_lists) for pno in pages]
     out = pymupdf.open()
     placements: dict[tuple[int, int], tuple[int, int]] = {}
+    sheet_first_seq: list[int] = []
     for i in range(0, len(seq), 2):
         out.new_page(width=sheet_w, height=sheet_h)
         page = out[len(out) - 1]
         pair = seq[i:i + 2]
+        first = next((i + slot for slot, item in enumerate(pair)
+                      if item is not None and item < len(flat_pages)), None)
+        sheet_first_seq.append((first + 1) if first is not None
+                              else (sheet_first_seq[-1] if sheet_first_seq else 1))
         for slot, item in enumerate(pair):
             if item is None or item >= len(flat_pages):
                 continue
@@ -615,6 +625,7 @@ def build_booklet(pymupdf, args, docs, page_lists, out_path,
         "padded": padded_n != n,
         "booklet": True,
         "placements": placements,
+        "sheet_first_seq": sheet_first_seq,
         "cells": [left, right],
         "docs": docs,
         "page_lists": page_lists,
@@ -683,6 +694,26 @@ def apply_outline(pymupdf, args, out, info) -> int:
     return len(fixed)
 
 
+def apply_page_labels(pymupdf, args, out, info) -> int:
+    """给每张纸打页标签：标签号 = 该张第一个格对应的源页序号（1 基）。
+
+    阅读器把标签显示在页边，翻到某张就能对上它是从源文档第几页开始的。
+    """
+    if args.page_labels == "none" or not hasattr(out, "set_page_labels"):
+        return 0
+    firsts = info.get("sheet_first_seq") or []
+    if not firsts:
+        return 0
+    labels = [{"startpage": i, "prefix": "", "style": "D",
+               "firstpagenum": max(1, int(no))} for i, no in enumerate(firsts)]
+    try:
+        out.set_page_labels(labels)
+    except Exception as exc:
+        log(f"  提示：页标签写入失败（{exc}）")
+        return 0
+    return len(labels)
+
+
 def visual_diff(pymupdf, path_a: str, path_b: str, dpi: int = 42,
                 max_pages: int = 6) -> float:
     """低清渲染两个 PDF 后比较平均像素差（0-255），作为图片瘦身的保真闸门。"""
@@ -721,6 +752,7 @@ def save_and_report(pymupdf, args, out, out_path, info):
         "producer": CREATOR_TAG,
     })
     outline_count = apply_outline(pymupdf, args, out, info)
+    label_count = apply_page_labels(pymupdf, args, out, info)
     if not args.no_subset_fonts:
         try:
             out.subset_fonts()  # CJK 课件字体子集化，通常体积减半
@@ -812,6 +844,7 @@ def save_and_report(pymupdf, args, out, out_path, info):
         "optimized_images": optimized,
         "subset_fonts": not args.no_subset_fonts,
         "outline_entries": outline_count,
+        "page_label_sheets": label_count,
     }
     if args.json:
         print(json.dumps(report, ensure_ascii=False, indent=2))
@@ -841,8 +874,13 @@ def save_and_report(pymupdf, args, out, out_path, info):
     elif size_pct > 5:
         size_txt += "，可用 --quality 60 --dpi 120 再压"
     print(f"  体积    {size_txt}" + ("；灰度省墨：开" if info["gray"] else ""))
+    nav = []
     if outline_count:
-        print(f"  书签    保留 {outline_count} 条（点击跳到对应格）")
+        nav.append(f"书签 {outline_count} 条（点击跳到对应格）")
+    if label_count:
+        nav.append("页标签按该张首个源页号标注")
+    if nav:
+        print("  导航    " + "；".join(nav))
     print(f"  打印    100% 比例、双面长边翻页、关闭“适合页面/适应纸张”")
     if args.rotate_back:
         print(f"  提示    已按短边翻页旋转背面（--rotate-back）")
@@ -886,6 +924,8 @@ def parse_args(argv):
     p.add_argument("--booklet", action="store_true",
                    help="小册子拼版：对折成 A5，骑马钉顺序（忽略 --nup）")
     p.add_argument("--pages", help="只取这些页，如 1-5,8,11-（对每个输入分别生效）")
+    p.add_argument("--page-labels", default="auto", choices=["auto", "none"],
+                   help="输出页标签：auto 用“该张首个源页号”标注（默认）|none 关闭")
     p.add_argument("--outline", default="auto",
                    help="书签目录：auto（源有目录就保留并映射到张/格）|none|数字（保留到第几级）")
     p.add_argument("--skip-blank", action="store_true", help="跳过空白页")
