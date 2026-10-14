@@ -1,0 +1,15 @@
+# ---- 本地学习资料：课件、讲义与打印产物不入库（版权与体积原因）----
+信号与系统/
+半导体物理/
+数电/
+PicoSOT学习讲义_*.pdf
+
+# 工具的输出与中间文件
+*_省纸打印版.pdf
+*.plain.tmp
+*.opt.tmp
+
+# Python 缓存
+__pycache__/
+*.py[cod]
+.pytest_cache/
