@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 import os
 import re
@@ -509,6 +510,77 @@ def test_enhance_and_binarize_clean_scan_background():
         # 二值化：纯黑白，体积明显更小
         assert i["min"] == 0 and i["white"] > 0.8, i
         assert i["size"] < b["size"] * 0.6, (i["size"], b["size"])
+
+
+def _pillow_and_numpy() -> bool:
+    try:
+        import numpy  # noqa: F401
+        from PIL import Image, ImageDraw  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+def make_skewed_scan(path, angle=3.0):
+    """生成“倾斜扫描件”：横排文字条整体旋转 angle 度后嵌进 PDF。"""
+    from PIL import Image, ImageDraw
+    width, height = 1240, 1754          # ≈ A4 @150dpi
+    img = Image.new("L", (width, height), 205)
+    draw = ImageDraw.Draw(img)
+    for row in range(6):
+        y = 250 + row * 220
+        draw.rectangle([150, y, 1050, y + 60], fill=40)
+    img = img.rotate(angle, resample=pack._pillow_resample(Image, "BICUBIC"),
+                     fillcolor=205)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    doc = pymupdf.open()
+    page = doc.new_page(width=210 * MM, height=297 * MM)
+    page.insert_image(page.rect, stream=buf.getvalue())
+    doc.save(path)
+    doc.close()
+
+
+def row_projection_score(pdf_path) -> float:
+    """行投影峰谷强度：文本行越水平，分数越高。"""
+    import numpy as np
+    doc = pymupdf.open(pdf_path)
+    try:
+        pix = doc[0].get_pixmap(dpi=120, colorspace=pymupdf.csGRAY)
+    finally:
+        doc.close()
+    arr = np.frombuffer(pix.samples, dtype=np.uint8).reshape(
+        pix.height, pix.width).astype("float32")
+    rows = (arr < 128).sum(axis=1).astype("float32")
+    return float(((rows[1:] - rows[:-1]) ** 2).sum())
+
+
+def test_deskew_estimates_and_improves_scan():
+    if not _pillow_and_numpy():
+        print("  SKIP  test_deskew_estimates_and_improves_scan（缺 Pillow/numpy）")
+        return
+    with tempfile.TemporaryDirectory() as td:
+        src = os.path.join(td, "倾斜扫描.pdf")
+        plain = os.path.join(td, "enh.pdf")
+        fixed = os.path.join(td, "enh_deskew.pdf")
+        make_skewed_scan(src, angle=3.0)
+
+        doc = pymupdf.open(src)
+        try:
+            pm = doc[0].get_pixmap(dpi=150, colorspace=pymupdf.csGRAY, alpha=False)
+        finally:
+            doc.close()
+        est = pack.estimate_skew_angle(pm)
+        assert est is not None and abs(abs(est) - 3.0) <= 1.0, est
+
+        run_pack([src, "-o", plain, "--enhance"])
+        run_pack([src, "-o", fixed, "--enhance", "--deskew"])
+        s_plain, s_fixed = row_projection_score(plain), row_projection_score(fixed)
+        assert s_fixed > s_plain * 3, (s_plain, s_fixed)
+
+        rep = json.loads(run_pack([src, "-o", fixed + ".2", "--enhance", "--deskew",
+                                   "--json"])[1])
+        assert rep["deskew_angles"] and abs(rep["deskew_angles"][0]) <= 5, rep
 
 
 if __name__ == "__main__":

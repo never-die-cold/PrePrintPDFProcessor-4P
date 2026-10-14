@@ -186,17 +186,69 @@ def write_gray_png(width: int, height: int, data: bytes) -> bytes:
             + chunk(b"IDAT", zlib.compress(bytes(raw), 6)) + chunk(b"IEND", b""))
 
 
-def enhance_image(pymupdf, pm, args, binarize: bool = False):
-    """扫描件清理：去底灰/对比伸展（有 Pillow 时加轻度中值去噪），可选二值化。
+def _pillow_resample(Image, name):
+    """兼容新旧 Pillow：Resampling 枚举优先，旧版退回常量。"""
+    res = getattr(Image, "Resampling", None)
+    if res is not None and hasattr(res, name):
+        return getattr(res, name)
+    return getattr(Image, name)
 
-    返回 (图像字节, 说明)。二值化输出 PNG（无损，扫描件体积小），否则 JPEG。
+
+def estimate_skew_angle(pm, max_angle: float = 5.0, step: float = 0.5):
+    """行投影方差法估计倾斜角（度）。返回修正角；无 numpy/Pillow 或内容太少时返回 None。
+
+    思路：把墨迹二值化后按候选角度旋转，行投影（每行墨量）越“峰谷分明”说明文本行越水平，
+    取峰谷差异最大的角度作为修正角。
+    """
+    try:
+        import numpy as np
+        from PIL import Image
+    except ImportError:
+        return None
+    img = Image.frombytes("L", (pm.width, pm.height), pm.samples)
+    scale = max(1, int(min(img.width, img.height) / 700))   # 降采样加速
+    if scale > 1:
+        img = img.resize((img.width // scale, img.height // scale),
+                         _pillow_resample(Image, "BILINEAR"))
+    arr = np.asarray(img, dtype=np.float32)
+    mask = (arr < 160).astype(np.float32)
+    if mask.sum() < 100:
+        return None
+    mask_img = Image.fromarray((mask * 255).astype("uint8"))
+    best_a, best_score = 0.0, -1.0
+    a = -max_angle
+    while a <= max_angle + 1e-9:
+        rot = mask_img.rotate(a, resample=_pillow_resample(Image, "BILINEAR"), fillcolor=0)
+        rows = np.asarray(rot, dtype=np.float32).sum(axis=1)
+        score = float(((rows[1:] - rows[:-1]) ** 2).sum())
+        if score > best_score:
+            best_score, best_a = score, a
+        a += step
+    return best_a
+
+
+def clean_scan_image(pymupdf, pm, args, binarize: bool = False):
+    """扫描件清理流水线：可选去歪斜 → 去噪 → 去底灰/二值化 → 编码。
+
+    返回 (图像字节, 格式, 去歪斜角度或 None)。二值化输出 PNG（无损、体积小），其余 JPEG。
+    没有 Pillow 时退回纯标准库 LUT + 自写 PNG（不做去噪与去歪斜）。
     """
     try:
         from PIL import Image, ImageFilter
     except ImportError:
         Image = None
+    angle = None
     if Image is not None:
         img = Image.frombytes("L", (pm.width, pm.height), pm.samples)
+        if args.deskew:
+            est = estimate_skew_angle(pm)
+            if est is not None and abs(est) >= 0.2:
+                # 旋转后的四角用页边颜色填充，避免出现纯白尖角
+                border = img.crop((0, 0, img.width, max(1, img.height // 40)))
+                fill = int(sum(border.getdata()) / max(1, border.width * border.height))
+                img = img.rotate(est, resample=_pillow_resample(Image, "BICUBIC"),
+                                 fillcolor=fill)
+                angle = round(float(est), 2)
         if not binarize:
             img = img.filter(ImageFilter.MedianFilter(3))   # 去椒盐噪点
         hist = img.histogram()
@@ -205,14 +257,14 @@ def enhance_image(pymupdf, pm, args, binarize: bool = False):
         buf = io.BytesIO()
         if binarize:
             img.save(buf, format="PNG", optimize=True)
-            return buf.getvalue(), "png"
+            return buf.getvalue(), "png", angle
         img.save(buf, format="JPEG", quality=args.quality)
-        return buf.getvalue(), "jpeg"
-    # 无 Pillow：纯标准库 LUT + 自写 PNG（不做去噪）
+        return buf.getvalue(), "jpeg", angle
+    # 无 Pillow：纯标准库 LUT + 自写 PNG（不做去噪/去歪斜）
     samples = pm.samples
     hist = [samples.count(bytes([v])) for v in range(256)]
     lut = _lut_binarize(hist) if binarize else _lut_enhance(hist)
-    return write_gray_png(pm.width, pm.height, samples.translate(bytes(lut))), "png"
+    return write_gray_png(pm.width, pm.height, samples.translate(bytes(lut))), "png", None
 
 
 def gray_sanitize(pymupdf, doc, temps: list):
@@ -511,6 +563,7 @@ def build(pymupdf, args, docs, page_lists, out_path):
     grid_labels: list[str] = []
     placements: dict[tuple[int, int], tuple[int, int]] = {}
     sheet_first_seq: list[int] = []
+    deskew_angles: list[float] = []
     seq_no = 0
 
     for di, pno in seq:
@@ -541,9 +594,11 @@ def build(pymupdf, args, docs, page_lists, out_path):
                 zoom = (fit_w / 72.0 * args.dpi) / src_rect.width if src_rect.width else 1.0
                 pm = doc[pno].get_pixmap(clip=clip, matrix=pymupdf.Matrix(zoom, zoom),
                                          colorspace=pymupdf.csGRAY, alpha=False)
-                if args.enhance or args.binarize:
-                    data, _fmt = enhance_image(pymupdf, pm, args,
-                                               binarize=bool(args.binarize))
+                if args.enhance or args.binarize or args.deskew:
+                    data, _fmt, angle = clean_scan_image(
+                        pymupdf, pm, args, binarize=bool(args.binarize))
+                    if angle is not None:
+                        deskew_angles.append(angle)
                 else:
                     data = pm.tobytes("jpeg", jpg_quality=args.quality)
                 page.insert_image(cell, stream=data, keep_proportion=True)
@@ -616,8 +671,9 @@ def build(pymupdf, args, docs, page_lists, out_path):
         "orientation": orient,
         "paper": args.paper,
         "gray": bool(args.gray or args.gray_raster),
-        "enhance": bool(args.enhance or args.binarize),
+        "enhance": bool(args.enhance or args.binarize or args.deskew),
         "binarize": bool(args.binarize),
+        "deskew_angles": deskew_angles,
         "padded": padded,
         "booklet": False,
         "placements": placements,
@@ -750,7 +806,7 @@ def build_booklet(pymupdf, args, docs, page_lists, out_path,
         "orientation": "landscape",
         "paper": args.paper,
         "gray": bool(args.gray or args.gray_raster),
-        "enhance": bool(args.enhance or args.binarize),
+        "enhance": bool(args.enhance or args.binarize or args.deskew),
         "binarize": bool(args.binarize),
         "padded": padded_n != n,
         "booklet": True,
@@ -968,6 +1024,9 @@ def save_and_report(pymupdf, args, out, out_path, info):
         "orientation": info["orientation"],
         "booklet": info["booklet"],
         "gray": info["gray"],
+        "enhance": bool(info.get("enhance")),
+        "binarize": bool(info.get("binarize")),
+        "deskew_angles": list(info.get("deskew_angles") or []),
         "size_before_mb": round(src_size / 1048576, 2),
         "size_after_mb": round(out_size / 1048576, 2),
         "size_change_percent": round(size_pct, 1),
@@ -1017,7 +1076,12 @@ def save_and_report(pymupdf, args, out, out_path, info):
         size_txt += "，可用 --quality 60 --dpi 120 再压"
     ink_note = ""
     if info.get("enhance"):
-        ink_note = "；扫描件清理：" + ("去底灰+二值化" if info.get("binarize") else "去底灰")
+        what = "去底灰+二值化" if info.get("binarize") else "去底灰"
+        angles = info.get("deskew_angles") or []
+        if angles:
+            mid = sorted(angles)[len(angles) // 2]
+            what += f"，去歪斜 {len(angles)} 页（中位 {mid:g}°）"
+        ink_note = "；扫描件清理：" + what
     print(f"  体积    {size_txt}" + ("；灰度省墨：开" if info["gray"] else "") + ink_note)
     nav = []
     if outline_count:
@@ -1075,6 +1139,8 @@ def parse_args(argv):
                    help="转灰度省彩色墨（矢量级转换，文字仍可搜索；走临时副本，不动原文件）")
     p.add_argument("--enhance", action="store_true",
                    help="扫描件清理：去底灰+对比伸展（有 Pillow 时另做轻度去噪），隐含光栅灰度")
+    p.add_argument("--deskew", action="store_true",
+                   help="自动校正扫描倾斜（行投影法，需 Pillow；建议与 --enhance 同用）")
     p.add_argument("--binarize", action="store_true",
                    help="二值化黑白（Otsu 阈值，隐含 --enhance；适合纯文字扫描件，最省墨）")
     p.add_argument("--gray-raster", action="store_true",
@@ -1121,8 +1187,13 @@ def main(argv=None):
     if args.fast:
         args.no_subset_fonts = True
         args.optimize = "off"
-    if args.enhance or args.binarize:
+    if args.enhance or args.binarize or args.deskew:
         args.gray_raster = True          # 清理像素必然走光栅输出
+    if args.deskew:
+        try:
+            import PIL  # noqa: F401
+        except ImportError:
+            die("--deskew 需要 Pillow：pip install pillow")
 
     for f in args.inputs:
         if not os.path.isfile(f):
