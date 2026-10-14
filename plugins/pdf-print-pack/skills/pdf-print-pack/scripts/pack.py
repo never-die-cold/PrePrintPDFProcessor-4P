@@ -59,6 +59,35 @@ def quiet_mupdf(pymupdf, verbose: bool) -> None:
         pass
 
 
+def pymupdf_version(pymupdf) -> tuple:
+    """尽力解析 PyMuPDF 版本号；解析不出来返回 (0, 0, 0)。"""
+    raw = getattr(pymupdf, "version", None)
+    if isinstance(raw, (tuple, list)) and raw:
+        raw = raw[0]
+    nums = [int(n) for n in re.findall(r"\d+", str(raw or ""))][:3]
+    while len(nums) < 3:
+        nums.append(0)
+    return tuple(nums)
+
+
+def gate_capabilities(pymupdf, args) -> None:
+    """按 PyMuPDF 能力降级或给出清晰报错（旧版本不再是一句 AttributeError）。"""
+    ver = pymupdf_version(pymupdf)
+    if ver < (1, 24, 0):
+        log(f"  提示：PyMuPDF {'.'.join(map(str, ver))} 较旧，部分功能会自动降级"
+            f"（建议 pip install -U pymupdf）")
+    if args.gray and not hasattr(pymupdf.Document, "recolor"):
+        die("当前 PyMuPDF 不支持矢量转灰度（需要 Document.recolor）：\n"
+            "  可改用 --gray-raster，或升级：pip install -U pymupdf")
+    if args.optimize != "off" and not hasattr(pymupdf.Document, "rewrite_images"):
+        log("  提示：当前 PyMuPDF 不支持图片瘦身，已跳过（pip install -U pymupdf 可启用）")
+        args.optimize = "off"
+    if not hasattr(pymupdf.Page, "get_bboxlog"):
+        if not args.no_trim:
+            log("  提示：当前 PyMuPDF 无法分析内容边界，已关闭自动裁白边")
+        args.no_trim = True
+
+
 def load_pymupdf():
     try:
         import pymupdf  # noqa: F401
@@ -1263,6 +1292,7 @@ def main(argv=None):
     pymupdf = load_pymupdf()
     args = parse_args(argv if argv is not None else sys.argv[1:])
     quiet_mupdf(pymupdf, args.verbose)
+    gate_capabilities(pymupdf, args)
     # 3in1 / 2合1 之类的写法
     m = re.fullmatch(r"(\d+)\s*(?:in|合|:)\s*1", str(args.nup))
     if m:

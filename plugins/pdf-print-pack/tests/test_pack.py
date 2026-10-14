@@ -658,6 +658,46 @@ def test_progress_output_on_large_docs():
         assert "拼版 " not in err_s2, err_s2[:300]
 
 
+def test_pymupdf_version_parsing():
+    import types
+    assert pack.pymupdf_version(types.SimpleNamespace(version=("1.28.2", "1.28.2", None))) == (1, 28, 2)
+    assert pack.pymupdf_version(types.SimpleNamespace(version="1.24.9")) == (1, 24, 9)
+    assert pack.pymupdf_version(types.SimpleNamespace(version=None)) == (0, 0, 0)
+
+
+def test_capability_gating_on_old_pymupdf():
+    """旧版 PyMuPDF：不该是一句 AttributeError，要么降级、要么给出明确提示。"""
+    import types
+    old_lib = types.SimpleNamespace(
+        version=("1.22.0", "1.22.0", None),
+        Document=type("Document", (), {}),
+        Page=type("Page", (), {}),
+    )
+    args = types.SimpleNamespace(gray=False, optimize="auto", no_trim=False)
+    pack.gate_capabilities(old_lib, args)
+    assert args.optimize == "off", "缺 rewrite_images 应自动跳过瘦身"
+    assert args.no_trim is True, "缺 get_bboxlog 应自动关掉裁白边"
+
+    args2 = types.SimpleNamespace(gray=True, optimize="off", no_trim=True)
+    try:
+        pack.gate_capabilities(old_lib, args2)
+    except SystemExit as exc:
+        assert exc.code == 2
+    else:
+        raise AssertionError("缺 recolor 且要求 --gray 时应直接报错退出")
+
+    # 新版本不应改动任何行为
+    new_lib = types.SimpleNamespace(
+        version=("1.28.2", "1.28.2", None),
+        Document=type("Document", (), {"recolor": lambda self: None,
+                                      "rewrite_images": lambda self: None}),
+        Page=type("Page", (), {"get_bboxlog": lambda self: []}),
+    )
+    args3 = types.SimpleNamespace(gray=True, optimize="auto", no_trim=False)
+    pack.gate_capabilities(new_lib, args3)
+    assert args3.optimize == "auto" and args3.no_trim is False
+
+
 if __name__ == "__main__":
     all_tests = [(name, fn) for name, fn in sorted(globals().items())
                  if name.startswith("test_") and callable(fn)]
