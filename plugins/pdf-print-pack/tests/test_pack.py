@@ -643,6 +643,21 @@ def test_dry_run_writes_nothing_and_preview_writes_pngs():
             assert os.path.dirname(png) == td
 
 
+def test_progress_output_on_large_docs():
+    """大任务应在 stderr 报进度，避免用户以为卡死。"""
+    with tempfile.TemporaryDirectory() as td:
+        src = os.path.join(td, "百页.pdf")
+        make_portrait_pdf(src, pages=100, size_word=False)
+        code, out_s, err_s = run_pack([src, "-o", os.path.join(td, "o.pdf"),
+                                       "--nup", "4", "--fast"])
+        assert "拼版" in err_s and "%" in err_s, err_s[:400]
+        # 小任务不刷进度
+        small = os.path.join(td, "十页.pdf")
+        make_portrait_pdf(small, pages=10, size_word=False)
+        code, out_s2, err_s2 = run_pack([small, "-o", os.path.join(td, "s.pdf"), "--nup", "2"])
+        assert "拼版 " not in err_s2, err_s2[:300]
+
+
 if __name__ == "__main__":
     all_tests = [(name, fn) for name, fn in sorted(globals().items())
                  if name.startswith("test_") and callable(fn)]

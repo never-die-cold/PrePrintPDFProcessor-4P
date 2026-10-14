@@ -566,9 +566,12 @@ def build(pymupdf, args, docs, page_lists, out_path):
     deskew_angles: list[float] = []
     rotated_pages = 0
     seq_no = 0
+    progress_step = max(1, total_src // 10) if total_src >= 40 else 0
 
     for di, pno in seq:
         seq_no += 1
+        if progress_step and seq_no % progress_step == 0:
+            log(f"  拼版 {seq_no * 100 // total_src}%（{seq_no}/{total_src} 页）")
         if cell_idx >= len(cells):
             sheet_idx += 1
             cell_idx = 0
@@ -796,6 +799,8 @@ def build_booklet(pymupdf, args, docs, page_lists, out_path,
         out.new_page(width=sheet_w, height=sheet_h)
         page = out[len(out) - 1]
         pair = seq[i:i + 2]
+        if len(seq) >= 40 and i and i % 40 == 0:
+            log(f"  拼版 {i * 100 // len(seq)}%（{i}/{len(seq)} 页）")
         first = next((i + slot for slot, item in enumerate(pair)
                       if item is not None and item < len(flat_pages)), None)
         sheet_first_seq.append((first + 1) if first is not None
@@ -973,6 +978,10 @@ def save_and_report(pymupdf, args, out, out_path, info):
         except Exception as exc:
             log(f"  提示：字体子集化跳过（{exc}）")
 
+    big_job = info["sheets"] > 30 or sum(os.path.getsize(p)
+                                         for p in args.inputs) > 20 * 1048576
+    if big_job:
+        log("  写出文件（大文档较慢，请稍候）…")
     plain_path = out_path + ".plain.tmp"
     # garbage=3/4 的跨对象去重在大文档上要花 1-2 分钟，只换约 10% 体积；
     # 默认用 garbage=2（逐对象清理，速度快），--compact 时才做深度去重。
@@ -1001,6 +1010,8 @@ def save_and_report(pymupdf, args, out, out_path, info):
                 os.remove(cand)
         except Exception as exc:
             log(f"  提示：图片瘦身跳过（{exc}）")
+    if big_job:
+        log("  校验输出…")
     # 校验再落盘，避免半成品覆盖用户的输出
     try:
         check = pymupdf.open(best_path)
