@@ -436,6 +436,22 @@ def test_gutter_shifts_content_and_mirror_flips_back():
         assert read_toc(bk) == []
 
 
+def test_cost_estimate_in_report():
+    """给纸张单价后，报告应直接给出省下的钱。"""
+    with tempfile.TemporaryDirectory() as td:
+        src = os.path.join(td, "十页.pdf")
+        out = os.path.join(td, "o.pdf")
+        make_portrait_pdf(src, pages=10, size_word=False)
+        rep = run_pack_json([src, "-o", out, "--cost", "0.1", "--nup", "2"])
+        assert rep["cost_per_sheet"] == 0.1
+        assert rep["paper_sheets_duplex"] == 3          # 10 页 → 5 面 → 双面 3 张
+        assert rep["cost_saved_vs_single"] == 0.7       # 原样单面 10 张
+        assert rep["cost_saved_vs_duplex"] == 0.2       # 原样双面 5 张
+        # 不给单价时不出现成本字段以外的干扰（默认 0）
+        rep2 = run_pack_json([src, "-o", out + ".2", "--nup", "2"])
+        assert rep2["cost_per_sheet"] == 0.0
+
+
 if __name__ == "__main__":
     all_tests = [(name, fn) for name, fn in sorted(globals().items())
                  if name.startswith("test_") and callable(fn)]

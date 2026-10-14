@@ -880,6 +880,9 @@ def save_and_report(pymupdf, args, out, out_path, info):
         "subset_fonts": not args.no_subset_fonts,
         "outline_entries": outline_count,
         "page_label_sheets": label_count,
+        "cost_per_sheet": args.cost,
+        "cost_saved_vs_single": round((src_pages - paper_duplex_now) * args.cost, 2),
+        "cost_saved_vs_duplex": round((paper_duplex_orig - paper_duplex_now) * args.cost, 2),
         "gutter_mm": args.gutter,
         "mirror": bool(args.mirror),
     }
@@ -904,6 +907,13 @@ def save_and_report(pymupdf, args, out, out_path, info):
     print(f"  省纸    原样单面 {src_pages} 张 → 省纸版双面 {paper_duplex_now} 张"
           f"（省 {saved_single:.0f}%；若原样也双面 {paper_duplex_orig} 张，省 "
           f"{report['paper_saved_percent']:.0f}%）")
+    if args.cost > 0:
+        single_cost = src_pages * args.cost
+        new_cost = paper_duplex_now * args.cost
+        dup_cost = paper_duplex_orig * args.cost
+        print(f"  成本    按 {args.cost:g} 元/张：原样单面 {single_cost:.2f} 元 → "
+              f"省纸版 {new_cost:.2f} 元（省 {single_cost - new_cost:.2f} 元；"
+              f"若原样也双面省 {dup_cost - new_cost:.2f} 元）")
     size_txt = (f"{report['size_before_mb']} MB → {report['size_after_mb']} MB"
                 f"（{'+' if size_pct >= 0 else ''}{size_pct:.0f}%）")
     if optimized:
@@ -955,6 +965,8 @@ def parse_args(argv):
     p.add_argument("--trim-force", action="store_true", help="强制裁白边（忽略阈值）")
     p.add_argument("--trim-threshold", type=float, default=0.94,
                    help="白边占比超过该值才裁（默认 0.94，即省 6%% 以上才裁）")
+    p.add_argument("--cost", type=float, default=0.0, metavar="元/张",
+                   help="每张纸单价（元），给出本次实际省下的钱（默认 0 不显示）")
     p.add_argument("--gutter", type=float, default=0.0,
                    help="装订线 mm：在装订侧额外留边（默认 0）；小册子自动朝中缝")
     p.add_argument("--mirror", action="store_true",
