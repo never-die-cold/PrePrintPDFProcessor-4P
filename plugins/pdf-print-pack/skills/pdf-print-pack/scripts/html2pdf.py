@@ -23,8 +23,19 @@ import subprocess
 import sys
 import tempfile
 import time
+from urllib.parse import quote
 
 MM = 72.0 / 25.4
+
+# 无头参数组合，按“新→旧”顺序尝试：
+# 新版 Chrome/Edge 用 --headless=new 与 --no-pdf-header-footer，
+# 旧版只认 --headless 与 --print-to-pdf-no-header。
+HEADLESS_VARIANTS = (
+    ("--headless=new", "--no-pdf-header-footer"),
+    ("--headless=new", "--print-to-pdf-no-header"),
+    ("--headless", "--print-to-pdf-no-header"),
+    ("--headless", "--no-pdf-header-footer"),
+)
 
 BROWSER_CANDIDATES = [
     r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
@@ -59,6 +70,33 @@ def find_browser(explicit: str | None) -> str:
              "或设置环境变量 PDFPP_BROWSER。")
 
 
+def print_to_pdf(browser: str, profile: str, url: str, out: str, timeout: int):
+    """按新旧参数组合依次尝试无头打印；返回 (是否成功, 最后一次错误摘要)。"""
+    last_err = ""
+    for idx, variant in enumerate(HEADLESS_VARIANTS):
+        if os.path.exists(out):
+            os.remove(out)          # 浏览器不覆盖已有文件
+        cmd = [browser, *variant, "--disable-gpu", "--no-first-run",
+               "--no-default-browser-check", f"--user-data-dir={profile}",
+               f"--print-to-pdf={out}", url]
+        try:
+            proc = subprocess.run(cmd, capture_output=True, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            last_err = f"超时（>{timeout}s）。HTML 是否过大？"
+            continue
+        # 浏览器偶尔先返回、文件稍后就绪
+        for _ in range(20):
+            if os.path.exists(out) and os.path.getsize(out) > 0:
+                if idx > 0:
+                    print(f"提示：浏览器不认新参数，已用兼容组合重试成功（{variant[1]}）",
+                          file=sys.stderr)
+                return True, ""
+            time.sleep(0.25)
+        err = (proc.stderr or b"").decode("utf-8", "replace").strip()
+        last_err = err[-800:] if err else f"退出码 {proc.returncode}"
+    return False, last_err
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="HTML → PDF（Edge/Chrome 无头打印）")
     ap.add_argument("html", help="输入的 HTML 文件（用 @page 声明纸张尺寸）")
@@ -77,34 +115,14 @@ def main(argv=None) -> int:
         os.remove(out)  # 浏览器不会覆盖已有文件，先删掉
 
     profile = tempfile.mkdtemp(prefix="pdfpp-")
-    url = "file:///" + html.replace("\\", "/").lstrip("/")
-    cmd = [
-        browser,
-        "--headless=new",
-        "--disable-gpu",
-        "--no-first-run",
-        "--no-default-browser-check",
-        "--no-pdf-header-footer",
-        f"--user-data-dir={profile}",
-        f"--print-to-pdf={out}",
-        url,
-    ]
+    # 路径可能含空格、#、% 或非 ASCII 字符，必须做百分号编码，否则 # 会被当成片段
+    url = "file:///" + quote(html.replace("\\", "/").lstrip("/"), safe="/:")
     try:
-        proc = subprocess.run(cmd, capture_output=True, timeout=args.timeout)
-    except subprocess.TimeoutExpired:
-        shutil.rmtree(profile, ignore_errors=True)
-        sys.exit(f"错误：浏览器打印超时（>{args.timeout}s）。HTML 是否过大？")
+        ok, detail = print_to_pdf(browser, profile, url, out, args.timeout)
     finally:
         shutil.rmtree(profile, ignore_errors=True)
-
-    # 浏览器偶尔先返回、文件稍后就绪
-    for _ in range(20):
-        if os.path.exists(out) and os.path.getsize(out) > 0:
-            break
-        time.sleep(0.25)
-    if not os.path.exists(out):
-        tail = (proc.stderr or b"").decode("utf-8", "replace")[-800:]
-        sys.exit(f"错误：未生成 PDF。浏览器输出：\n{tail}")
+    if not ok:
+        sys.exit(f"错误：未生成 PDF。最后一次浏览器输出：\n{detail}")
 
     info = ""
     try:
