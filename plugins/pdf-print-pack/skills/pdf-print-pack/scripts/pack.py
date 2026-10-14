@@ -1317,6 +1317,9 @@ def main(argv=None):
     files = list(args.inputs)
     if not args.no_sort and len(files) > 1:
         files = sorted(files, key=natural_key)
+    # 让下游（页标前缀、报告、体积统计）与真实处理顺序一致：
+    # 此前 args.inputs 仍是命令行原顺序，页标前缀会张冠李戴（同名文件互换）
+    args.inputs = files
 
     docs, page_lists = [], []
     temps: list[str] = []
