@@ -16,6 +16,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 
 import pymupdf
 
@@ -297,13 +298,26 @@ def test_json_report_is_pure_json():
 
 
 if __name__ == "__main__":
-    tests = [(name, fn) for name, fn in sorted(globals().items())
-             if name.startswith("test_") and callable(fn)]
+    all_tests = [(name, fn) for name, fn in sorted(globals().items())
+                 if name.startswith("test_") and callable(fn)]
+    args = sys.argv[1:]
+    if args and args[0] in ("-l", "--list"):
+        for name, _ in all_tests:
+            print(name)
+        raise SystemExit(0)
+    tests = all_tests
+    if args:
+        needle = args[0].lower()
+        tests = [(n, f) for n, f in all_tests if needle in n.lower()]
+        if not tests:
+            print(f"没有匹配 “{args[0]}” 的测试；-l 可列出全部名称")
+            raise SystemExit(2)
     failed = []
     for name, fn in tests:
+        t0 = time.perf_counter()
         try:
             fn()
-            print(f"  PASS  {name}")
+            print(f"  PASS  {name}（{time.perf_counter() - t0:.1f}s）")
         except Exception as exc:  # noqa: BLE001
             failed.append((name, exc))
             print(f"  FAIL  {name}: {exc}")
