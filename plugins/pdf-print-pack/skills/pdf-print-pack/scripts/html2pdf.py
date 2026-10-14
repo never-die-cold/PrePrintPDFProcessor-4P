@@ -26,14 +26,20 @@ from urllib.parse import quote
 
 MM = 72.0 / 25.4
 
-# 无头参数组合，按“新→旧”顺序尝试：
-# 新版 Chrome/Edge 用 --headless=new 与 --no-pdf-header-footer，
-# 旧版只认 --headless 与 --print-to-pdf-no-header。
-HEADLESS_VARIANTS = (
+# 无头参数组合，按“新→旧 → 去掉沙箱”顺序尝试：
+# - 新版 Chrome/Edge 用 --headless=new 与 --no-pdf-header-footer，旧版只认另一组；
+# - Linux/容器里 root 身份运行时，Chrome 的 SUID 沙箱会直接拒绝启动，
+#   因此最后再试带 --no-sandbox 的组合（本机普通用户用不到，CI/容器里必需）。
+_BASE_VARIANTS = (
     ("--headless=new", "--no-pdf-header-footer"),
     ("--headless=new", "--print-to-pdf-no-header"),
     ("--headless", "--print-to-pdf-no-header"),
     ("--headless", "--no-pdf-header-footer"),
+)
+HEADLESS_VARIANTS = tuple(
+    variant + extra
+    for extra in ((), ("--no-sandbox",))
+    for variant in _BASE_VARIANTS
 )
 
 BROWSER_CANDIDATES = [
@@ -75,9 +81,9 @@ def print_to_pdf(browser: str, profile: str, url: str, out: str, timeout: int):
     for idx, variant in enumerate(HEADLESS_VARIANTS):
         if os.path.exists(out):
             os.remove(out)          # 浏览器不覆盖已有文件
-        cmd = [browser, *variant, "--disable-gpu", "--no-first-run",
-               "--no-default-browser-check", f"--user-data-dir={profile}",
-               f"--print-to-pdf={out}", url]
+        cmd = [browser, *variant, "--disable-gpu", "--disable-dev-shm-usage",
+               "--no-first-run", "--no-default-browser-check",
+               f"--user-data-dir={profile}", f"--print-to-pdf={out}", url]
         try:
             proc = subprocess.run(cmd, capture_output=True, timeout=timeout)
         except subprocess.TimeoutExpired:
@@ -87,8 +93,8 @@ def print_to_pdf(browser: str, profile: str, url: str, out: str, timeout: int):
         for _ in range(20):
             if os.path.exists(out) and os.path.getsize(out) > 0:
                 if idx > 0:
-                    print(f"提示：浏览器不认新参数，已用兼容组合重试成功（{variant[1]}）",
-                          file=sys.stderr)
+                    print("提示：浏览器不认新参数或沙箱受限，已用兼容组合重试成功"
+                          f"（{' '.join(variant)}）", file=sys.stderr)
                 return True, ""
             time.sleep(0.25)
         err = (proc.stderr or b"").decode("utf-8", "replace").strip()
