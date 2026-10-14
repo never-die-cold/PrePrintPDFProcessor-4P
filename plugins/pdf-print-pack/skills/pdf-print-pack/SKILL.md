@@ -72,6 +72,8 @@ python "${ZCODE_SKILL_DIR}/scripts/pack.py" 扫描.pdf --no-trim --gray --pad-du
 | `--gutter 10` / `--mirror` | 装订线：装订侧留 10mm；`--mirror` 让背面镜像（双面装订用）；小册子自动朝中缝 |
 | `--gray` | 转灰度（矢量级转换，文字仍清晰可搜索），省彩色墨 |
 | `--gray-raster` | 光栅灰度：整页转灰度 JPEG，体积/墨量最省；文字不再可搜索，适合扫描件与图片型课件 |
+| `--enhance` | 扫描件清理：去底灰 + 对比伸展（有 Pillow 时加轻度去噪），省墨大头 |
+| `--binarize` | 二值化纯黑白（Otsu 阈值，隐含 --enhance），纯文字扫描件最省墨 |
 | `--pad-duplex` | 补空白面，总面数变偶数，双面打印不变错位 |
 | `--rotate-back` | 打印机只能在**短边**翻转时加；长边翻转不要加 |
 | `--booklet` | 对折骑马钉拼版（适合竖版文档；已拼过版的 2 合 1 材料不要再用） |

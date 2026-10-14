@@ -452,6 +452,65 @@ def test_cost_estimate_in_report():
         assert rep2["cost_per_sheet"] == 0.0
 
 
+def make_noisy_scan(path, pages=4):
+    """模拟扫描件：灰底 + 深色文字。"""
+    doc = pymupdf.open()
+    for k in range(1, pages + 1):
+        page = doc.new_page(width=210 * MM, height=297 * MM)
+        page.draw_rect(page.rect, fill=(0.78, 0.78, 0.80))
+        page.insert_text((60, 120), f"PAGE {k}", fontsize=30, color=(0.12, 0.12, 0.12))
+    doc.save(path)
+    doc.close()
+
+
+def gray_page_stats(pdf_path):
+    doc = pymupdf.open(pdf_path)
+    try:
+        pix = doc[0].get_pixmap(dpi=72, colorspace=pymupdf.csGRAY)
+        s = pix.samples
+        n = len(s)
+        return {"mean": sum(s) / n,
+                "white": sum(1 for v in s if v > 235) / n,
+                "min": min(s),
+                "size": os.path.getsize(pdf_path)}
+    finally:
+        doc.close()
+
+
+def test_unit_luts_and_png_writer():
+    hist = [0] * 256
+    hist[200] = 900   # 背景
+    hist[30] = 100    # 文字
+    lut_e = pack._lut_enhance(hist)
+    assert lut_e[200] == 255 and lut_e[30] < 80, (lut_e[200], lut_e[30])
+    lut_b = pack._lut_binarize(hist)
+    assert set(lut_b) <= {0, 255} and lut_b[200] == 255 and lut_b[30] == 0
+    data = bytes([0, 128, 255, 255, 64, 32])
+    pm = pymupdf.Pixmap(pack.write_gray_png(3, 2, data))
+    assert (pm.width, pm.height) == (3, 2)
+    assert list(pm.samples) == list(data)
+
+
+def test_enhance_and_binarize_clean_scan_background():
+    with tempfile.TemporaryDirectory() as td:
+        src = os.path.join(td, "扫描件.pdf")
+        base = os.path.join(td, "base.pdf")
+        enh = os.path.join(td, "enh.pdf")
+        bina = os.path.join(td, "bin.pdf")
+        make_noisy_scan(src)
+        run_pack([src, "-o", base, "--nup", "2", "--gray-raster"])
+        run_pack([src, "-o", enh, "--nup", "2", "--enhance"])
+        run_pack([src, "-o", bina, "--nup", "2", "--binarize"])
+        b, e, i = gray_page_stats(base), gray_page_stats(enh), gray_page_stats(bina)
+        # 去底灰：背景大幅变白，文字仍深
+        assert e["white"] > 0.8 > b["white"], (b["white"], e["white"])
+        assert e["mean"] > b["mean"] + 20, (b["mean"], e["mean"])
+        assert e["min"] < 80, e["min"]
+        # 二值化：纯黑白，体积明显更小
+        assert i["min"] == 0 and i["white"] > 0.8, i
+        assert i["size"] < b["size"] * 0.6, (i["size"], b["size"])
+
+
 if __name__ == "__main__":
     all_tests = [(name, fn) for name, fn in sorted(globals().items())
                  if name.startswith("test_") and callable(fn)]

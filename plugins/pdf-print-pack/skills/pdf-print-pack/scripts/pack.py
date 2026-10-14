@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import math
 import os
@@ -127,6 +128,92 @@ def parse_pages_spec(spec: str | None, total: int) -> list[int]:
 
 
 # ---------------------------------------------------------------- 版面分析
+
+def _lut_enhance(hist) -> list:
+    """去底灰 + 对比伸展：把接近背景的高亮压成纯白，其余线性拉到 0-255。"""
+    total = sum(hist) or 1
+    acc = 0
+    wp = 255
+    for v in range(255, -1, -1):
+        acc += hist[v]
+        if acc >= 0.30 * total:   # 从亮端累计 30% 处即背景白点
+            wp = v
+            break
+    wp = max(wp, 120)
+    cut = int(wp * 0.92)
+    return [255 if v >= cut else min(255, int(round(v * 255 / max(1, cut))))
+            for v in range(256)]
+
+
+def _lut_binarize(hist) -> list:
+    """Otsu 阈值二值化。"""
+    total = sum(hist) or 1
+    sum_all = sum(i * h for i, h in enumerate(hist))
+    sum_b = 0.0
+    w_b = 0
+    best_t, best_var = 160, -1.0
+    for t in range(256):
+        w_b += hist[t]
+        w_f = total - w_b
+        if w_b == 0 or w_f == 0:
+            continue
+        sum_b += t * hist[t]
+        m_b = sum_b / w_b
+        m_f = (sum_all - sum_b) / w_f
+        var = w_b * w_f * (m_b - m_f) ** 2
+        if var > best_var:
+            best_var, best_t = var, t
+    # 阈值按闭区间判墨：v <= t 归为笔画（否则最深笔画会被判成背景而消失）
+    return [0 if v <= best_t else 255 for v in range(256)]
+
+
+def write_gray_png(width: int, height: int, data: bytes) -> bytes:
+    """最小 8 位灰度 PNG 编码器（无第三方依赖的兜底路径）。"""
+    import struct
+    import zlib
+    raw = bytearray()
+    for y in range(height):
+        raw.append(0)                     # 每行滤波类型：None
+        raw += data[y * width:(y + 1) * width]
+
+    def chunk(tag: bytes, payload: bytes) -> bytes:
+        return (struct.pack(">I", len(payload)) + tag + payload
+                + struct.pack(">I", zlib.crc32(tag + payload) & 0xFFFFFFFF))
+
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, 0, 0, 0, 0)
+    signature = bytes([0x89]) + b"PNG" + bytes([13, 10, 26, 10])
+    return (signature + chunk(b"IHDR", ihdr)
+            + chunk(b"IDAT", zlib.compress(bytes(raw), 6)) + chunk(b"IEND", b""))
+
+
+def enhance_image(pymupdf, pm, args, binarize: bool = False):
+    """扫描件清理：去底灰/对比伸展（有 Pillow 时加轻度中值去噪），可选二值化。
+
+    返回 (图像字节, 说明)。二值化输出 PNG（无损，扫描件体积小），否则 JPEG。
+    """
+    try:
+        from PIL import Image, ImageFilter
+    except ImportError:
+        Image = None
+    if Image is not None:
+        img = Image.frombytes("L", (pm.width, pm.height), pm.samples)
+        if not binarize:
+            img = img.filter(ImageFilter.MedianFilter(3))   # 去椒盐噪点
+        hist = img.histogram()
+        lut = _lut_binarize(hist) if binarize else _lut_enhance(hist)
+        img = img.point(lut)
+        buf = io.BytesIO()
+        if binarize:
+            img.save(buf, format="PNG", optimize=True)
+            return buf.getvalue(), "png"
+        img.save(buf, format="JPEG", quality=args.quality)
+        return buf.getvalue(), "jpeg"
+    # 无 Pillow：纯标准库 LUT + 自写 PNG（不做去噪）
+    samples = pm.samples
+    hist = [samples.count(bytes([v])) for v in range(256)]
+    lut = _lut_binarize(hist) if binarize else _lut_enhance(hist)
+    return write_gray_png(pm.width, pm.height, samples.translate(bytes(lut))), "png"
+
 
 def gray_sanitize(pymupdf, doc, temps: list):
     """整体转灰度：走「转灰度 → 存临时副本 → 重新打开」。
@@ -454,7 +541,11 @@ def build(pymupdf, args, docs, page_lists, out_path):
                 zoom = (fit_w / 72.0 * args.dpi) / src_rect.width if src_rect.width else 1.0
                 pm = doc[pno].get_pixmap(clip=clip, matrix=pymupdf.Matrix(zoom, zoom),
                                          colorspace=pymupdf.csGRAY, alpha=False)
-                data = pm.tobytes("jpeg", jpg_quality=args.quality)
+                if args.enhance or args.binarize:
+                    data, _fmt = enhance_image(pymupdf, pm, args,
+                                               binarize=bool(args.binarize))
+                else:
+                    data = pm.tobytes("jpeg", jpg_quality=args.quality)
                 page.insert_image(cell, stream=data, keep_proportion=True)
             else:
                 page.show_pdf_page(cur_cells[cell_idx], doc, pno, clip=clip)
@@ -525,6 +616,8 @@ def build(pymupdf, args, docs, page_lists, out_path):
         "orientation": orient,
         "paper": args.paper,
         "gray": bool(args.gray or args.gray_raster),
+        "enhance": bool(args.enhance or args.binarize),
+        "binarize": bool(args.binarize),
         "padded": padded,
         "booklet": False,
         "placements": placements,
@@ -657,6 +750,8 @@ def build_booklet(pymupdf, args, docs, page_lists, out_path,
         "orientation": "landscape",
         "paper": args.paper,
         "gray": bool(args.gray or args.gray_raster),
+        "enhance": bool(args.enhance or args.binarize),
+        "binarize": bool(args.binarize),
         "padded": padded_n != n,
         "booklet": True,
         "placements": placements,
@@ -920,7 +1015,10 @@ def save_and_report(pymupdf, args, out, out_path, info):
         size_txt += "，已做图片瘦身"
     elif size_pct > 5:
         size_txt += "，可用 --quality 60 --dpi 120 再压"
-    print(f"  体积    {size_txt}" + ("；灰度省墨：开" if info["gray"] else ""))
+    ink_note = ""
+    if info.get("enhance"):
+        ink_note = "；扫描件清理：" + ("去底灰+二值化" if info.get("binarize") else "去底灰")
+    print(f"  体积    {size_txt}" + ("；灰度省墨：开" if info["gray"] else "") + ink_note)
     nav = []
     if outline_count:
         nav.append(f"书签 {outline_count} 条（点击跳到对应格）")
@@ -975,6 +1073,10 @@ def parse_args(argv):
                    help="装订边在左还是右（默认 left）")
     p.add_argument("--gray", action="store_true",
                    help="转灰度省彩色墨（矢量级转换，文字仍可搜索；走临时副本，不动原文件）")
+    p.add_argument("--enhance", action="store_true",
+                   help="扫描件清理：去底灰+对比伸展（有 Pillow 时另做轻度去噪），隐含光栅灰度")
+    p.add_argument("--binarize", action="store_true",
+                   help="二值化黑白（Otsu 阈值，隐含 --enhance；适合纯文字扫描件，最省墨）")
     p.add_argument("--gray-raster", action="store_true",
                    help="光栅灰度：整页转灰度 JPEG（体积/墨量最省，文字不可搜索；--dpi/--quality 生效）")
     p.add_argument("--pad-duplex", action="store_true", help="补空白页使总面数为偶数（双面不打乱）")
@@ -1019,6 +1121,8 @@ def main(argv=None):
     if args.fast:
         args.no_subset_fonts = True
         args.optimize = "off"
+    if args.enhance or args.binarize:
+        args.gray_raster = True          # 清理像素必然走光栅输出
 
     for f in args.inputs:
         if not os.path.isfile(f):
